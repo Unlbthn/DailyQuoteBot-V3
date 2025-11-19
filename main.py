@@ -1,4 +1,3 @@
-import os
 import random
 import datetime
 import logging
@@ -29,7 +28,7 @@ from quotes import SOZLER, normalize_author
 # --------------------------------
 
 # KENDİ TOKEN'INI BURAYA YAZ
-BOT_TOKEN = "BURAYA_BOT_TOKENINI_YAZ"
+BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 
 # AdsGram
 ADSGRAM_BLOCK_ID = 16417
@@ -56,6 +55,10 @@ logger = logging.getLogger(__name__)
 # --------------------------------
 USER_LANG: Dict[int, str] = {}  # user_id -> "tr" / "en"
 USER_LAST_CATEGORY: Dict[int, str] = {}  # kullanıcı en son hangi kategoriden söz aldı
+
+# Kullanıcıya gösterilen SON sözü saklıyoruz:
+# user_id -> (category, quote_text, author)
+LAST_SHOWN: Dict[int, Tuple[str, str, str]] = {}
 
 
 # --------------------------------
@@ -115,6 +118,10 @@ def init_db():
 
 
 def upsert_user(user_id: int, lang: Optional[str] = None):
+    """
+    Her /start, /random, /today vs çağrısında user kaydı güncellenir.
+    Tüm user_id'ler kalıcı olarak DB'de tutuluyor.
+    """
     now = datetime.datetime.utcnow().isoformat()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -171,31 +178,23 @@ def add_favorite(
     conn.close()
 
 
-def get_favorites(user_id: int, lang: Optional[str] = None, limit: int = 10):
+def get_favorites(user_id: int, limit: int = 50):
+    """
+    Tüm dillerdeki favorileri birlikte getiriyoruz (TR+EN karışık).
+    DB'de hiçbir favori silinmez, sadece burada max limit kadar gösteriyoruz.
+    """
     conn = get_db_connection()
     cur = conn.cursor()
-    if lang:
-        cur.execute(
-            """
-            SELECT id, category, lang, text, author, created_at
-            FROM favorites
-            WHERE user_id = ? AND lang = ?
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (user_id, lang, limit),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT id, category, lang, text, author, created_at
-            FROM favorites
-            WHERE user_id = ?
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        )
+    cur.execute(
+        """
+        SELECT id, category, lang, text, author, created_at
+        FROM favorites
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (user_id, limit),
+    )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -417,7 +416,6 @@ def build_share_text(quote_text: str, author: str, lang: str) -> str:
 def build_share_keyboard(
     category: str, quote_text: str, author: str, lang: str
 ) -> InlineKeyboardMarkup:
-    # Favori ekleme
     if lang == "en":
         fav_txt = "⭐ Add to Favorites"
         change_txt = "Change 🔄"
@@ -597,6 +595,7 @@ async def send_quote_for_category(
         return
 
     USER_LAST_CATEGORY[user_id] = category
+    LAST_SHOWN[user_id] = (category, quote_text, author)
 
     if lang == "en":
         prefix = "Quote of the Day:\n\n"
@@ -644,6 +643,8 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    LAST_SHOWN[user_id] = (category, quote_text, author)
+
     if lang == "en":
         prefix = f"Random Quote ({SOZLER[category]['label_en']}):\n\n"
     else:
@@ -685,6 +686,7 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     USER_LAST_CATEGORY[user_id] = category
+    LAST_SHOWN[user_id] = (category, quote_text, author)
 
     if lang == "en":
         prefix = "Quote of the Day:\n\n"
@@ -727,6 +729,7 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             USER_LAST_CATEGORY[user_id] = category
+            LAST_SHOWN[user_id] = (category, quote_text, author)
 
             if lang == "en":
                 prefix = "Quote of the Day:\n\n"
@@ -756,7 +759,7 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
 async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
-    rows = get_favorites(user_id, lang=lang, limit=10)
+    rows = get_favorites(user_id, limit=50)  # TR+EN birlikte, son 50
 
     if not rows:
         msg = (
@@ -770,9 +773,9 @@ async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if lang == "tr":
-        header = "Son favori sözlerin (en fazla 10 adet):\n"
+        header = "Favori sözlerin (en fazla 50 adet gösteriliyor):\n"
     else:
-        header = "Your recent favorite quotes (up to 10):\n"
+        header = "Your favorite quotes (showing up to 50):\n"
 
     if update.message:
         await update.message.reply_text(header)
@@ -945,12 +948,15 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_quote_for_category(update, context, category)
         return
 
-    # Favoriye ekle
+    # Favoriye ekle (gösterilen SON sözü kaydediyoruz, rastgele yeni söz değil!)
     if data.startswith("fav|"):
         _, category = data.split("|", 1)
-        quote_text, author = choose_random_quote(category, lang)
-        if quote_text:
-            add_favorite(user_id, category, lang, quote_text, author)
+
+        if user_id in LAST_SHOWN:
+            last_cat, quote_text, author = LAST_SHOWN[user_id]
+            # kategori butonuyla oynanmışsa bile yine de kullanıcının gördüğü son sözü kaydediyoruz
+            real_category = last_cat or category
+            add_favorite(user_id, real_category, lang, quote_text, author)
 
         try:
             await query.answer(
