@@ -1,6 +1,7 @@
 import datetime
 import random
 import urllib.parse
+from typing import Optional
 
 from telegram import (
     Update,
@@ -32,26 +33,62 @@ from db import (
 )
 from quotes import SOZLER, normalize_author
 
+# --------------------------------
+# AYARLAR
+# --------------------------------
 BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 ADMIN_ID = 5664983086
 
+# Burayı KENDİ bot linkinle güncelle
+BOT_LINK = "https://t.me/QuoteMastersBot"  # örnek
 
-# ------------------------------
-# Yardımcı: Paylaş + Favori + Değiştir butonları
-# ------------------------------
+
+# --------------------------------
+# Yardımcı fonksiyonlar
+# --------------------------------
+def clean_author(yazar: Optional[str]) -> str:
+    """
+    Yazar adını normalize eder, 'Anonim' ise boş döner.
+    'Nelson Mandela’ya atfedilir' -> 'Nelson Mandela'
+    """
+    if not yazar:
+        return ""
+    a = normalize_author(yazar)
+    if not a:
+        return ""
+    if a.strip().lower().startswith("anonim"):
+        return ""
+    return a.strip()
+
+
+def build_share_text(full_text: str, lang: str) -> str:
+    """Paylaşırken kullanılacak metni (bot linki ile birlikte) oluşturur."""
+    if lang == "tr":
+        return f"{full_text}\n\nBu ve binlercesi {BOT_LINK}'ta. Denemek için tıkla!"
+    else:
+        return f"{full_text}\n\nMore quotes like this on {BOT_LINK} – tap to try!"
+
+
 def build_main_keyboard(
     category: str,
     lang: str,
     idx: int,
     full_text: str,
+    share_text: str,
     include_back: bool = False,
 ) -> InlineKeyboardMarkup:
-    whatsapp_text = urllib.parse.quote_plus(full_text)
-    whatsapp_url = f"https://api.whatsapp.com/send?text={whatsapp_text}"
+    """Değiştir, Favori, Telegram/WhatsApp paylaş butonları."""
+    # WhatsApp paylaş
+    whatsapp_encoded = urllib.parse.quote_plus(share_text)
+    whatsapp_url = f"https://api.whatsapp.com/send?text={whatsapp_encoded}"
+
+    # Telegram paylaş (t.me/share/url)
+    telegram_encoded = urllib.parse.quote_plus(share_text)
+    telegram_share_url = f"https://t.me/share/url?text={telegram_encoded}"
 
     buttons: list[list[InlineKeyboardButton]] = []
 
-    # 1) Değiştir butonu (aynı kategori için)
+    # 1) Değiştir
     buttons.append(
         [InlineKeyboardButton("Değiştir 🔄", callback_data=f"change_{category}")]
     )
@@ -66,14 +103,9 @@ def build_main_keyboard(
         ]
     )
 
-    # 3) Telegram'da paylaş (inline switch)
+    # 3) Telegram'da paylaş
     buttons.append(
-        [
-            InlineKeyboardButton(
-                "📤 Telegram'da Paylaş",
-                switch_inline_query_current_chat=full_text,
-            )
-        ]
+        [InlineKeyboardButton("📤 Telegram'da Paylaş", url=telegram_share_url)]
     )
 
     # 4) WhatsApp'ta paylaş
@@ -81,7 +113,7 @@ def build_main_keyboard(
         [InlineKeyboardButton("📲 WhatsApp'ta Paylaş", url=whatsapp_url)]
     )
 
-    # 5) Dil / konu değiştir (özellikle kategori seçim akışında güzel)
+    # 5) Geri dön
     if include_back:
         buttons.append(
             [
@@ -94,9 +126,9 @@ def build_main_keyboard(
     return InlineKeyboardMarkup(buttons)
 
 
-# ------------------------------
+# --------------------------------
 # Bugünün sözü (motivation sabit)
-# ------------------------------
+# --------------------------------
 def build_today_quote(category: str, user_id: int):
     lang = get_user_lang(user_id)
     today = datetime.date.today().toordinal()
@@ -107,24 +139,26 @@ def build_today_quote(category: str, user_id: int):
     if lang == "tr":
         idx = today % len(tr_list)
         metin, yazar = tr_list[idx]
-        yazar = normalize_author(yazar)
-        text = f"Bugünün Sözü:\n\n{metin}\n\n— {yazar}"
+        author = clean_author(yazar)
+        if author:
+            text = f"Bugünün Sözü:\n\n{metin}\n\n— {author}"
+        else:
+            text = f"Bugünün Sözü:\n\n{metin}"
     else:
         idx = today % len(en_list)
-        metin_en, metin_tr, yazar = en_list[idx]
-        yazar = normalize_author(yazar)
-        text = (
-            "Quote of the Day:\n\n"
-            f"{metin_en}\n\n"
-            f"Türkçesi: {metin_tr}\n\n"
-            f"— {yazar}"
-        )
+        metin_en, _, yazar = en_list[idx]  # TR çeviriyi kullanmıyoruz
+        author = clean_author(yazar)
+        if author:
+            text = f"Quote of the Day:\n\n{metin_en}\n\n— {author}"
+        else:
+            text = f"Quote of the Day:\n\n{metin_en}"
+
     return text, idx, lang
 
 
-# ------------------------------
+# --------------------------------
 # /start
-# ------------------------------
+# --------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ensure_user(user_id)
@@ -142,19 +176,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "DailyQuoteBot\n\n"
         "Günün sözünü almak için önce dil seç.\n\n"
         "Komutlar:\n"
-        "/random   - Rastgele bir söz\n"
-        "/today    - Bugünün sözü\n"
-        "/favorites - Favori sözlerin\n"
-        "/settings  - Ayarlarını düzenle\n"
+        "/random - Rastgele bir söz\n\n"
+        "/today - Bugünün sözü\n\n"
+        "/favorites - Favori sözlerin\n\n"
+        "/settings - Ayarlarını düzenle\n"
     )
 
     if update.message:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ------------------------------
+# --------------------------------
 # Dil seçimi
-# ------------------------------
+# --------------------------------
 async def dil_sec(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
     query = update.callback_query
     try:
@@ -175,9 +209,9 @@ async def dil_sec(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str)
     )
 
 
-# ------------------------------
-# Seçilen kategoriden söz getir (Değiştir butonu dahil)
-# ------------------------------
+# --------------------------------
+# Seçilen kategoriden söz getir
+# --------------------------------
 async def get_soz(update: Update, context: ContextTypes.DEFAULT_TYPE, category: str):
     query = update.callback_query
     try:
@@ -200,23 +234,23 @@ async def get_soz(update: Update, context: ContextTypes.DEFAULT_TYPE, category: 
         tr_list = SOZLER[category]["tr"]
         idx = random.randrange(len(tr_list))
         metin, yazar = tr_list[idx]
-        yazar = normalize_author(yazar)
-        text = f"Günün Sözü:\n\n{metin}\n\n— {yazar}"
-        full_text = text
+        author = clean_author(yazar)
+        if author:
+            full_text = f"Günün Sözü:\n\n{metin}\n\n— {author}"
+        else:
+            full_text = f"Günün Sözü:\n\n{metin}"
     else:
         en_list = SOZLER[category]["en"]
         idx = random.randrange(len(en_list))
-        metin_en, metin_tr, yazar = en_list[idx]
-        yazar = normalize_author(yazar)
-        text = (
-            "Quote of the Day:\n\n"
-            f"{metin_en}\n\n"
-            f"Türkçesi: {metin_tr}\n\n"
-            f"— {yazar}"
-        )
-        full_text = text
+        metin_en, _, yazar = en_list[idx]
+        author = clean_author(yazar)
+        if author:
+            full_text = f"Quote of the Day:\n\n{metin_en}\n\n— {author}"
+        else:
+            full_text = f"Quote of the Day:\n\n{metin_en}"
 
-    keyboard = build_main_keyboard(category, lang, idx, full_text, include_back=True)
+    share_text = build_share_text(full_text, lang)
+    keyboard = build_main_keyboard(category, lang, idx, full_text, share_text, include_back=True)
 
     try:
         await query.edit_message_text(full_text, reply_markup=keyboard)
@@ -233,9 +267,9 @@ async def get_soz(update: Update, context: ContextTypes.DEFAULT_TYPE, category: 
     )
 
 
-# ------------------------------
+# --------------------------------
 # /random – rastgele söz
-# ------------------------------
+# --------------------------------
 async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ensure_user(user_id)
@@ -247,21 +281,32 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tr_list = SOZLER[category]["tr"]
         idx = random.randrange(len(tr_list))
         metin, yazar = tr_list[idx]
-        yazar = normalize_author(yazar)
-        full_text = f"Rastgele Söz ({SOZLER[category]['label']}):\n\n{metin}\n\n— {yazar}"
+        author = clean_author(yazar)
+        if author:
+            full_text = f"Rastgele Söz ({SOZLER[category]['label']}):\n\n{metin}\n\n— {author}"
+        else:
+            full_text = (
+                f"Rastgele Söz ({SOZLER[category]['label']}):\n\n{metin}"
+            )
     else:
         en_list = SOZLER[category]["en"]
         idx = random.randrange(len(en_list))
-        metin_en, metin_tr, yazar = en_list[idx]
-        yazar = normalize_author(yazar)
-        full_text = (
-            f"Random Quote ({SOZLER[category]['label']}):\n\n"
-            f"{metin_en}\n\n"
-            f"Türkçesi: {metin_tr}\n\n"
-            f"— {yazar}"
-        )
+        metin_en, _, yazar = en_list[idx]
+        author = clean_author(yazar)
+        if author:
+            full_text = (
+                f"Random Quote ({SOZLER[category]['label']}):\n\n"
+                f"{metin_en}\n\n"
+                f"— {author}"
+            )
+        else:
+            full_text = (
+                f"Random Quote ({SOZLER[category]['label']}):\n\n"
+                f"{metin_en}"
+            )
 
-    keyboard = build_main_keyboard(category, lang, idx, full_text, include_back=False)
+    share_text = build_share_text(full_text, lang)
+    keyboard = build_main_keyboard(category, lang, idx, full_text, share_text, include_back=False)
 
     if update.message:
         await update.message.reply_text(full_text, reply_markup=keyboard)
@@ -276,19 +321,19 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ------------------------------
+# --------------------------------
 # /today – bugünün sözü
-# ------------------------------
+# --------------------------------
 async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ensure_user(user_id)
     set_daily_enabled(user_id, True)
 
     category = "motivation"
-    text, idx, lang = build_today_quote(category, user_id)
-    full_text = text
+    full_text, idx, lang = build_today_quote(category, user_id)
+    share_text = build_share_text(full_text, lang)
 
-    keyboard = build_main_keyboard(category, lang, idx, full_text, include_back=False)
+    keyboard = build_main_keyboard(category, lang, idx, full_text, share_text, include_back=False)
 
     if update.message:
         await update.message.reply_text(full_text, reply_markup=keyboard)
@@ -303,11 +348,11 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ------------------------------
+# --------------------------------
 # Günlük 10:00 job
-# ------------------------------
+# --------------------------------
 async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
-    from db import db_execute  # lokal import döngüyü önler
+    from db import db_execute  # döngüyü önlemek için lokal import
 
     cur = db_execute(
         "SELECT user_id FROM users WHERE daily_enabled = 1",
@@ -320,8 +365,8 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
 
     for user_id in user_ids:
         try:
-            text, idx, lang = build_today_quote(category, user_id)
-            msg = await context.bot.send_message(chat_id=user_id, text=text)
+            full_text, idx, lang = build_today_quote(category, user_id)
+            msg = await context.bot.send_message(chat_id=user_id, text=full_text)
 
             log_stat("quote_today", user_id, category)
 
@@ -336,9 +381,9 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
             continue
 
 
-# ------------------------------
+# --------------------------------
 # Admin: TR/EN söz ekleme
-# ------------------------------
+# --------------------------------
 async def addquote_tr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
@@ -418,9 +463,9 @@ async def addquote_en(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ------------------------------
+# --------------------------------
 # /favorites
-# ------------------------------
+# --------------------------------
 async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ensure_user(user_id)
@@ -433,24 +478,22 @@ async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["Son 10 favori sözün:\n"]
     for i, row in enumerate(rows, start=1):
         cat = row["category"]
-        author = row["author"]
+        author = clean_author(row["author"])
         quote_text = row["quote_text"]
-        quote_tr = row["quote_tr"]
 
         label = SOZLER.get(cat, {}).get("label", cat)
         lines.append(f"{i}) [{label}]")
         lines.append(f"{quote_text}")
-        if quote_tr:
-            lines.append(f"Türkçesi: {quote_tr}")
-        lines.append(f"— {author}")
+        if author:
+            lines.append(f"— {author}")
         lines.append("")
 
     await update.message.reply_text("\n".join(lines))
 
 
-# ------------------------------
+# --------------------------------
 # /settings
-# ------------------------------
+# --------------------------------
 async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ensure_user(user_id)
@@ -487,9 +530,9 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ------------------------------
+# --------------------------------
 # /stats – admin
-# ------------------------------
+# --------------------------------
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
@@ -531,9 +574,9 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-# ------------------------------
+# --------------------------------
 # Favori callback
-# ------------------------------
+# --------------------------------
 async def handle_favorite_from_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE, payload: str
 ):
@@ -558,15 +601,15 @@ async def handle_favorite_from_callback(
         if lang == "tr":
             tr_list = SOZLER[category]["tr"]
             metin, yazar = tr_list[idx]
-            yazar = normalize_author(yazar)
+            author = clean_author(yazar)
             quote_text = metin
             quote_tr = None
         else:
             en_list = SOZLER[category]["en"]
             metin_en, metin_tr, yazar = en_list[idx]
-            yazar = normalize_author(yazar)
+            author = clean_author(yazar)
             quote_text = metin_en
-            quote_tr = metin_tr
+            quote_tr = metin_tr  # gösterilmiyor ama DB'de tutulabilir
 
         add_favorite(
             user_id=user_id,
@@ -574,7 +617,7 @@ async def handle_favorite_from_callback(
             lang=lang,
             quote_text=quote_text,
             quote_tr=quote_tr,
-            author=yazar,
+            author=author,
         )
         log_stat("favorite_add", user_id, category)
         await query.answer("Favorilere eklendi ✅", show_alert=False)
@@ -583,9 +626,9 @@ async def handle_favorite_from_callback(
         await query.answer("Favori eklenirken hata oluştu.", show_alert=True)
 
 
-# ------------------------------
+# --------------------------------
 # Callback router
-# ------------------------------
+# --------------------------------
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -611,8 +654,8 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 "Dil seçerek yeniden başlayabilirsin.\n\n"
                 "Komutlar:\n"
-                "/random  - Rastgele söz\n"
-                "/today   - Bugünün sözü",
+                "/random - Rastgele söz\n\n"
+                "/today - Bugünün sözü",
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
         except BadRequest as e:
@@ -637,9 +680,9 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_favorite_from_callback(update, context, data)
 
 
-# ------------------------------
+# --------------------------------
 # Inline Mode – söz önerileri
-# ------------------------------
+# --------------------------------
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query
     if query is None:
@@ -673,26 +716,32 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             tr_list = SOZLER[category]["tr"]
             idx = random.randrange(len(tr_list))
             metin, yazar = tr_list[idx]
-            yazar = normalize_author(yazar)
-            full_text = f"{metin}\n\n— {yazar}"
+            author = clean_author(yazar)
+            if author:
+                base_text = f"{metin}\n\n— {author}"
+            else:
+                base_text = metin
         else:
             en_list = SOZLER[category]["en"]
             idx = random.randrange(len(en_list))
-            metin_en, metin_tr, yazar = en_list[idx]
-            yazar = normalize_author(yazar)
-            full_text = (
-                f"{metin_en}\n\n"
-                f"Türkçesi: {metin_tr}\n\n"
-                f"— {yazar}"
-            )
+            metin_en, _, yazar = en_list[idx]
+            author = clean_author(yazar)
+            if author:
+                base_text = f"{metin_en}\n\n— {author}"
+            else:
+                base_text = metin_en
 
-        keyboard = build_main_keyboard(category, lang, idx, full_text, include_back=False)
+        full_text = base_text
+        share_text = build_share_text(full_text, lang)
+        keyboard = build_main_keyboard(
+            category, lang, idx, full_text, share_text, include_back=False
+        )
 
         result = InlineQueryResultArticle(
             id=f"{category}_{lang}_{idx}_{i}",
             title=label,
             description=label,
-            input_message_content=InputTextMessageContent(full_text),
+            input_message_content=InputTextMessageContent(share_text),
             reply_markup=keyboard,
         )
         results.append(result)
@@ -700,16 +749,16 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer(results, cache_time=5, is_personal=True)
 
 
-# ------------------------------
+# --------------------------------
 # Hata handler
-# ------------------------------
+# --------------------------------
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     print("Hata yakalandı:", context.error)
 
 
-# ------------------------------
+# --------------------------------
 # MAIN
-# ------------------------------
+# --------------------------------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
