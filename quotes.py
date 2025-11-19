@@ -55,3 +55,23 @@ SOZLER = {
         ],
     },
 }
+
+
+def normalize_author(author: str) -> str:
+    """
+    İsimlerin sonundaki '…’ya atfedilir' vb. ekleri temizler.
+    Örn:
+      "Nelson Mandela’ya atfedilir" -> "Nelson Mandela"
+      "Anonim" -> "Anonim"
+    """
+    if not author:
+        return ""
+
+    a = author.strip()
+
+    # Türkçe tırnak ve atfedilir eklerini temizle
+    for suffix in ["’a atfedilir", "’e atfedilir", "’ya atfedilir", "’ye atfedilir", "ya atfedilir", "ye atfedilir"]:
+        if a.endswith(suffix):
+            a = a[: -len(suffix)].strip()
+
+    return a
