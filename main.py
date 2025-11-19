@@ -171,6 +171,14 @@ def build_share_text(full_text: str, lang: str) -> str:
         return f"{full_text}\n\nMore quotes like this on {BOT_LINK} – tap to try!"
 
 
+def get_label(category: str, lang: str) -> str:
+    """Kategori label'ını seçilen dile göre döndürür."""
+    data = SOZLER.get(category, {})
+    if lang == "en":
+        return data.get("label_en", category)
+    return data.get("label_tr", category)
+
+
 def build_main_keyboard(
     category: str,
     lang: str,
@@ -296,8 +304,10 @@ async def dil_sec(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str)
     set_user_lang(user_id, lang)
 
     buttons = []
-    for key, data in SOZLER.items():
-        buttons.append([InlineKeyboardButton(data["label"], callback_data=f"cat_{key}")])
+    for key in SOZLER.keys():
+        buttons.append(
+            [InlineKeyboardButton(get_label(key, lang), callback_data=f"cat_{key}")]
+        )
 
     await query.edit_message_text(
         t(lang, "choose_category"),
@@ -374,7 +384,7 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_lang(user_id)
 
     category = random.choice(list(SOZLER.keys()))
-    label = SOZLER[category]["label"]
+    label = get_label(category, lang)
 
     if lang == "tr":
         tr_list = SOZLER[category]["tr"]
@@ -504,7 +514,8 @@ async def addquote_tr(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if category_key not in SOZLER:
         SOZLER[category_key] = {
-            "label": category_key.title(),
+            "label_tr": category_key.title(),
+            "label_en": category_key.title(),
             "tr": [],
             "en": [],
         }
@@ -544,7 +555,8 @@ async def addquote_en(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if category_key not in SOZLER:
         SOZLER[category_key] = {
-            "label": category_key.title(),
+            "label_tr": category_key.title(),
+            "label_en": category_key.title(),
             "tr": [],
             "en": [],
         }
@@ -574,7 +586,7 @@ async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         author = clean_author(row["author"])
         quote_text = row["quote_text"]
 
-        label = SOZLER.get(cat, {}).get("label", cat)
+        label = get_label(cat, lang)
         lines.append(f"{i}) [{label}]")
         lines.append(f"{quote_text}")
         if author:
@@ -642,14 +654,14 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if top_cat_views_row and top_cat_views_row["category"] in SOZLER:
         top_cat_views = (
-            f"{SOZLER[top_cat_views_row['category']]['label']} ({top_cat_views_row['c']})"
+            f"{get_label(top_cat_views_row['category'], 'tr')} ({top_cat_views_row['c']})"
         )
     else:
         top_cat_views = "Yok"
 
     if top_cat_favs_row and top_cat_favs_row["category"] in SOZLER:
         top_cat_favs = (
-            f"{SOZLER[top_cat_favs_row['category']]['label']} ({top_cat_favs_row['c']})"
+            f"{get_label(top_cat_favs_row['category'], 'tr')} ({top_cat_favs_row['c']})"
         )
     else:
         top_cat_favs = "Yok"
@@ -790,8 +802,9 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if q:
         matched_categories = []
         for key, data in SOZLER.items():
-            label = data["label"].lower()
-            if q in key.lower() or q in label:
+            label_tr = data.get("label_tr", "").lower()
+            label_en = data.get("label_en", "").lower()
+            if q in key.lower() or q in label_tr or q in label_en:
                 matched_categories.append(key)
         if not matched_categories:
             matched_categories = list(SOZLER.keys())
@@ -803,7 +816,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     for i in range(max_results):
         category = random.choice(matched_categories)
-        label = SOZLER[category]["label"]
+        label = get_label(category, lang)
 
         if lang == "tr":
             tr_list = SOZLER[category]["tr"]
