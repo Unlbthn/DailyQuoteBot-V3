@@ -48,8 +48,7 @@ BOT_LINK = "https://t.me/QuoteMastersBot"
 TEXTS = {
     "tr": {
         "start": (
-            "DailyQuoteBot\n\n"
-            "Önce dilini seç, sonra her gün seçtiğin dilde sözler al.\n\n"
+            "Daily Quote Bot\n\n"
             "Komutlar:\n"
             "/random - Rastgele bir söz\n\n"
             "/today - Bugünün sözü\n\n"
@@ -94,13 +93,12 @@ TEXTS = {
     },
     "en": {
         "start": (
-            "DailyQuoteBot\n\n"
-            "First choose your language, then receive quotes every day in that language.\n\n"
+            "Daily Quote Bot\n\n"
             "Commands:\n"
             "/random - Random quote\n\n"
             "/today - Quote of the day\n\n"
             "/favorites - Your favorite quotes\n\n"
-            "/settings - Change your settings\n"
+            "/settings - Edit your settings\n"
         ),
         "choose_category": "Choose a topic:",
         "random_prefix": "Random Quote",
@@ -171,12 +169,30 @@ def build_share_text(full_text: str, lang: str) -> str:
         return f"{full_text}\n\nMore quotes like this on {BOT_LINK} – tap to try!"
 
 
+ICON_MAP = {
+    "motivation": "💪",
+    "love": "❤️",
+    "life": "🌿",
+    "success": "🏆",
+    "wisdom": "🧠",
+    "friendship": "🤝",
+    "happiness": "😊",
+    "self": "🪞",
+    "mindset": "🧩",
+    "animals": "🐾",
+    "sports": "🏃",
+    "discipline": "🎯",
+}
+
+
 def get_label(category: str, lang: str) -> str:
-    """Kategori label'ını seçilen dile göre döndürür."""
+    """Kategori label'ını seçilen dile göre döndürür, ikonu sona ekler."""
     data = SOZLER.get(category, {})
-    if lang == "en":
-        return data.get("label_en", category)
-    return data.get("label_tr", category)
+    base = data.get("label_tr" if lang == "tr" else "label_en", category)
+    icon = ICON_MAP.get(category, "")
+    if icon:
+        return f"{base} {icon}"
+    return base
 
 
 def build_main_keyboard(
@@ -269,12 +285,11 @@ def build_today_quote(category: str, user_id: int):
 
 
 # --------------------------------
-# /start
+# /start – sadece dil seçtir
 # --------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ensure_user(user_id)
-    lang = get_user_lang(user_id)
     set_daily_enabled(user_id, True)
 
     keyboard = [
@@ -284,14 +299,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
 
-    text = t(lang, "start")
+    text = (
+        "Daily Quote Bot\n\n"
+        "Lütfen dilini seç.\n\n"
+        "Please choose your language."
+    )
 
     if update.message:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # --------------------------------
-# Dil seçimi
+# Dil seçimi – komut ekranını + 'Konu Seç' butonunu göster
 # --------------------------------
 async def dil_sec(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str):
     query = update.callback_query
@@ -303,15 +322,21 @@ async def dil_sec(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str)
     user_id = query.from_user.id
     set_user_lang(user_id, lang)
 
-    buttons = []
-    for key in SOZLER.keys():
-        buttons.append(
-            [InlineKeyboardButton(get_label(key, lang), callback_data=f"cat_{key}")]
-        )
+    # Komutlar ekranı + "Konu Seç" butonu
+    text = t(lang, "start")
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "Konu Seç" if lang == "tr" else "Choose Topic",
+                callback_data="choose_topic",
+            )
+        ]
+    ]
 
     await query.edit_message_text(
-        t(lang, "choose_category"),
-        reply_markup=InlineKeyboardMarkup(buttons),
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
@@ -630,6 +655,12 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(t("en", "lang_en_button"), callback_data="set_lang_en"),
         ],
         [daily_button],
+        [
+            InlineKeyboardButton(
+                "Konu Seç" if lang == "tr" else "Choose Topic",
+                callback_data="choose_topic",
+            )
+        ],
     ]
 
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -733,6 +764,39 @@ async def handle_favorite_from_callback(
 
 
 # --------------------------------
+# /export_users – admin, user base
+# --------------------------------
+async def export_users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from db import db_execute
+
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("Bu komut sadece admin içindir.")
+        return
+
+    cur = db_execute("SELECT user_id, lang FROM users ORDER BY user_id", ())
+    rows = cur.fetchall()
+
+    if not rows:
+        await update.message.reply_text("Kayıtlı kullanıcı bulunamadı.")
+        return
+
+    lines = ["user_id,lang"]
+    for r in rows:
+        lines.append(f"{r['user_id']},{r['lang']}")
+
+    text = "Bot User Base (CSV formatında):\n\n" + "\n".join(lines)
+
+    if len(text) > 4000:
+        await update.message.reply_text(
+            "Kullanıcı sayısı fazla olduğu için CSV metni çok uzun. "
+            "Şimdilik ilk 200 kaydı gösteriyorum:\n\n" + "\n".join(lines[:201])
+        )
+    else:
+        await update.message.reply_text(text)
+
+
+# --------------------------------
 # Callback router
 # --------------------------------
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -745,6 +809,21 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dil_sec(update, context, "tr")
     elif data == "lang_en":
         await dil_sec(update, context, "en")
+    elif data == "choose_topic":
+        # Diline göre kategori butonlarını göster
+        buttons = []
+        for key in SOZLER.keys():
+            label = get_label(key, lang)
+            buttons.append(
+                [InlineKeyboardButton(label, callback_data=f"cat_{key}")]
+            )
+        try:
+            await query.edit_message_text(
+                t(lang, "choose_category"),
+                reply_markup=InlineKeyboardMarkup(buttons),
+            )
+        except BadRequest as e:
+            print("choose_topic edit hatası:", e)
     elif data.startswith("cat_"):
         category = data.replace("cat_", "")
         await get_soz(update, context, category)
@@ -876,6 +955,7 @@ def main():
     app.add_handler(CommandHandler("favorites", favorites_cmd))
     app.add_handler(CommandHandler("settings", settings_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("export_users", export_users_cmd))
 
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(InlineQueryHandler(inline_query_handler))
