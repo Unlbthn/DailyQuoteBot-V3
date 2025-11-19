@@ -1,3 +1,7 @@
+import csv
+import os
+
+
 SOZLER = {
 
     "motivation": {
@@ -236,3 +240,59 @@ def normalize_author(author: str) -> str:
             a = a[: -len(e)].strip()
 
     return a
+
+
+
+def extend_from_csv(csv_path: str = "quotes_extra.csv") -> None:
+    """
+    quotes_extra.csv dosyasından ek sözleri SOZLER yapısına ekler.
+    Dosya yoksa sessizce geçer.
+
+    CSV başlıkları:
+      category_key, lang, text, tr_text, author
+
+    - category_key: motivation, love, life, success, ... (veya yeni kategori)
+    - lang: 'tr' veya 'en'
+    - text: sözün metni (ilgili dilde)
+    - tr_text: (opsiyonel) İngilizce sözler için Türkçe çeviri
+    - author: (opsiyonel) boşsa 'Anonim' olarak kaydedilir
+    """
+    if not os.path.exists(csv_path):
+        return
+
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                category_key = (row.get("category_key") or "").strip().lower()
+                lang = (row.get("lang") or "").strip().lower()
+                text = (row.get("text") or "").strip()
+                tr_text = (row.get("tr_text") or "").strip()
+                author = (row.get("author") or "").strip() or "Anonim"
+
+                if not category_key or not lang or not text:
+                    continue
+
+                if category_key not in SOZLER:
+                    # Yeni kategori ise basit bir label ile oluştur
+                    base_label = category_key.title()
+                    SOZLER[category_key] = {
+                        "label_tr": base_label,
+                        "label_en": base_label,
+                        "tr": [],
+                        "en": [],
+                    }
+
+                if lang == "tr":
+                    # Türkçe söz: (metin, yazar)
+                    SOZLER[category_key]["tr"].append((text, author))
+                elif lang == "en":
+                    # İngilizce söz: (metin_en, metin_tr_ceviri, yazar)
+                    SOZLER[category_key]["en"].append((text, tr_text, author))
+    except Exception as e:
+        print("CSV'den söz yüklenirken hata:", e)
+
+
+# Modül import edildiğinde CSV'den ek sözleri yükle
+extend_from_csv()
+
