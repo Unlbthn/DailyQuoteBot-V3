@@ -3,7 +3,7 @@ import datetime
 import logging
 import sqlite3
 import urllib.parse
-import html
+import re
 from typing import Optional, Tuple, Dict
 
 import requests
@@ -28,11 +28,11 @@ from quotes import SOZLER, normalize_author
 # AYARLAR
 # --------------------------------
 
-# KENDI TOKEN'INI BURAYA YAZ
+# KENDİ TOKEN'INI BURAYA YAZ
 BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 
 # AdsGram
-ADSGRAM_BLOCK_ID = 17933  # senin block ID'in
+ADSGRAM_BLOCK_ID = 17933  # kendi block ID'in
 
 # Admin
 ADMIN_ID = 5664983086
@@ -259,12 +259,27 @@ def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict
         return None
 
 
+def html_to_plain(text_html: str) -> str:
+    """
+    AdsGram text_html içinden basitçe HTML tag'lerini kaldırıp satır sonlarını korur.
+    """
+    if not text_html:
+        return ""
+    # Satır sonları için <br> -> \n
+    text = text_html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    # Diğer tüm tag'leri sil
+    text = re.sub(r"<.*?>", "", text)
+    # Çift boşlukları toparla
+    text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
+    return text
+
+
 def get_adsgram_inline(user_id: int, lang: str):
     """
     TR -> önce tr, yoksa en
     EN -> en
     diğer -> language'siz
-    Dönen: (ad_text_html, ad_button_rows) veya (None, None)
+    Dönen: (ad_plain_text, ad_button_rows) veya (None, None)
     """
     data: Optional[dict] = None
 
@@ -289,13 +304,15 @@ def get_adsgram_inline(user_id: int, lang: str):
     if not text_html and not (button_name and click_url):
         return None, None
 
+    ad_plain = html_to_plain(text_html)
+
     buttons = []
     if button_name and click_url:
         buttons.append([InlineKeyboardButton(button_name, url=click_url)])
     if reward_name and reward_url:
         buttons.append([InlineKeyboardButton(reward_name, url=reward_url)])
 
-    return text_html, buttons
+    return ad_plain, buttons
 
 
 # --------------------------------
@@ -544,16 +561,16 @@ async def choose_topic_screen(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # --------------------------------
-# Ortak: söz + reklam metnini HTML formatta kur
+# Söz + reklam metni düz string
 # --------------------------------
-def build_quote_html(prefix: str, quote_text: str, author: str, ad_html: Optional[str]):
-    q = html.escape(quote_text)
-    a = html.escape(author) if author else ""
-    text = f"<b>{prefix}</b><br><br>{q}"
+def build_quote_text(prefix: str, quote_text: str, author: str, ad_plain: Optional[str], lang: str) -> str:
+    text = prefix + quote_text
     if author:
-        text += f"<br><br>— {a}"
-    if ad_html:
-        text += "<br><br><b>Sponsored</b><br><br>" + ad_html
+        text += f"\n\n— {author}"
+    if ad_plain:
+        text += "\n\n"
+        text += "Sponsored\n\n" if lang == "en" else "Sponsored\n\n"
+        text += ad_plain
     return text
 
 
@@ -588,21 +605,20 @@ async def send_quote_for_category(
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
 
-    ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
+    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
-        prefix = "Quote of the Day:"
+        prefix = "Quote of the Day:\n\n"
     else:
-        prefix = "Günün Sözü:"
+        prefix = "Günün Sözü:\n\n"
 
-    full_html = build_quote_html(prefix, quote_text, author, ad_text)
+    full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
     keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
 
     try:
         await query.edit_message_text(
-            full_html,
+            full_text,
             reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
         )
     except BadRequest as e:
         logger.warning("send_quote_for_category edit hata: %s", e)
@@ -630,20 +646,20 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
+    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
-        prefix = f"Random Quote ({SOZLER[category]['label_en']}):"
+        prefix = f"Random Quote ({SOZLER[category]['label_en']}):\n\n"
     else:
-        prefix = f"Rastgele Söz ({SOZLER[category]['label_tr']}):"
+        prefix = f"Rastgele Söz ({SOZLER[category]['label_tr']}):\n\n"
 
-    full_html = build_quote_html(prefix, quote_text, author, ad_text)
+    full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
+
     if update.message:
         keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
         await update.message.reply_text(
-            full_html,
+            full_text,
             reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
         )
 
 
@@ -667,21 +683,20 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
+    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
-        prefix = "Quote of the Day:"
+        prefix = "Quote of the Day:\n\n"
     else:
-        prefix = "Bugünün Sözü:"
+        prefix = "Bugünün Sözü:\n\n"
 
-    full_html = build_quote_html(prefix, quote_text, author, ad_text)
+    full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
 
     if update.message:
         keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
         await update.message.reply_text(
-            full_html,
+            full_text,
             reply_markup=keyboard,
-            parse_mode=ParseMode.HTML,
         )
 
 
@@ -706,21 +721,21 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
             USER_LAST_CATEGORY[user_id] = category
             LAST_SHOWN[user_id] = (category, quote_text, author)
 
-            ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
-            if lang == "en":
-                prefix = "Quote of the Day:"
-            else:
-                prefix = "Bugünün Sözü:"
+            ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
 
-            full_html = build_quote_html(prefix, quote_text, author, ad_text)
+            if lang == "en":
+                prefix = "Quote of the Day:\n\n"
+            else:
+                prefix = "Bugünün Sözü:\n\n"
+
+            full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
             reply_markup = (
                 InlineKeyboardMarkup(ad_buttons) if ad_buttons else None
             )
 
             await context.bot.send_message(
                 chat_id=user_id,
-                text=full_html,
-                parse_mode=ParseMode.HTML,
+                text=full_text,
                 reply_markup=reply_markup,
             )
         except Exception as e:
