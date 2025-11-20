@@ -27,12 +27,11 @@ from quotes import SOZLER, normalize_author
 # AYARLAR
 # --------------------------------
 
-# KENDİ TOKEN'INI BURAYA YAZ
-BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
+# KENDI TOKEN'INI BURAYA YAZ
+BOT_TOKEN = "BURAYA_BOT_TOKENINI_YAZ"
 
 # AdsGram
-ADSGRAM_BLOCK_ID = 17933
-
+ADSGRAM_BLOCK_ID = 17933  # sen kendi block ID'ni buraya yazdınsa dokunma
 
 # Admin
 ADMIN_ID = 5664983086
@@ -230,10 +229,53 @@ def add_suggestion(
 
 
 # --------------------------------
-# AdsGram: reklam mesajı gönder
+# AdsGram yardımcı: veri çek (JSON döner ya da None)
 # --------------------------------
+def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict]:
+    """
+    Belirli bir language parametresiyle AdsGram'dan reklam çekmeyi dener.
+    Uygun reklam yoksa veya yanıt JSON değilse None döner.
+    """
+    try:
+        params = {
+            "tgid": str(user_id),
+            "blockid": str(ADSGRAM_BLOCK_ID),
+        }
+        if lang_param:
+            params["language"] = lang_param
+
+        resp = requests.get(
+            "https://api.adsgram.ai/advbot",
+            params=params,
+            timeout=3,
+        )
+
+        logger.info(
+            "AdsGram request user=%s lang=%s status=%s",
+            user_id,
+            lang_param,
+            resp.status_code,
+        )
+        logger.info("AdsGram response (ilk 200 char): %s", resp.text[:200])
+
+        if resp.status_code != 200:
+            return None
+
+        raw = resp.text.strip()
+        if not raw.startswith("{"):
+            # Reklam yoksa bazen düz metin dönebiliyor
+            return None
+
+        data = resp.json()
+        return data
+
+    except Exception as e:
+        logger.warning("AdsGram hata (lang=%s): %s", lang_param, e)
+        return None
+
+
 # --------------------------------
-# AdsGram: reklam mesajı gönder (KOMPAKT VERSİYON – SADECE METİN)
+# AdsGram: reklam mesajı gönder (KOMPAKT + TR→EN FALLBACK)
 # --------------------------------
 async def send_adsgram_ad(
     context: ContextTypes.DEFAULT_TYPE,
@@ -242,40 +284,26 @@ async def send_adsgram_ad(
     lang: Optional[str] = None,
 ):
     """
-    AdsGram API'den reklam çekip, VARSA küçük bir Sponsored metni olarak gönderir.
-    image_url gelse bile GÖRMEZDEN GELİYORUZ -> büyük görsel yok, söz yukarı kaçmıyor.
+    Önce kullanıcının diline göre reklam çekmeye çalışır.
+    - lang == 'tr' ise: önce TR dener, reklam yoksa EN'e düşer.
+    - lang == 'en' ise: direkt EN dener.
+    - Diğer durumlarda: language parametresi olmadan dener.
+    Reklam varsa küçük bir "Sponsored" metni olarak gönderir (görsel YOK).
     """
-    try:
-        params = {
-            "tgid": str(user_id),
-            "blockid": str(ADSGRAM_BLOCK_ID),
-        }
-        if lang == "en":
-            params["language"] = "en"
-        elif lang == "tr":
-            params["language"] = "tr"
+    data: Optional[dict] = None
 
-        resp = requests.get(
-            "https://api.adsgram.ai/advbot",
-            params=params,
-            timeout=3,
-        )
+    if lang == "tr":
+        # 1) Önce TR dene
+        data = fetch_adsgram_data(user_id, "tr")
+        # 2) Reklam yoksa EN'e fallback
+        if data is None:
+            data = fetch_adsgram_data(user_id, "en")
+    elif lang == "en":
+        data = fetch_adsgram_data(user_id, "en")
+    else:
+        data = fetch_adsgram_data(user_id, None)
 
-        logger.info("AdsGram status: %s", resp.status_code)
-        logger.info("AdsGram response (ilk 300 char): %s", resp.text[:300])
-
-        if resp.status_code != 200:
-            return
-
-        raw = resp.text.strip()
-        # Reklam yoksa bazen düz metin dönebiliyor (JSON olmayan)
-        if not raw.startswith("{"):
-            return
-
-        data = resp.json()
-
-    except Exception as e:
-        logger.warning("AdsGram hata: %s", e)
+    if data is None:
         return
 
     text_html = data.get("text_html") or ""
@@ -299,7 +327,6 @@ async def send_adsgram_ad(
 
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
 
-    # Küçük, sade bir “Sponsored” mesajı
     full_text = "Sponsored\n\n" + text_html
 
     try:
@@ -312,6 +339,7 @@ async def send_adsgram_ad(
         )
     except Exception as e:
         logger.warning("AdsGram send_message hata: %s", e)
+
 
 # --------------------------------
 # Yardımcılar – dil, kategori, metin, buton
@@ -949,13 +977,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_quote_for_category(update, context, category)
         return
 
-    # Favoriye ekle (gösterilen SON sözü kaydediyoruz, rastgele yeni söz değil!)
+    # Favoriye ekle (gösterilen SON sözü kaydediyoruz)
     if data.startswith("fav|"):
         _, category = data.split("|", 1)
 
         if user_id in LAST_SHOWN:
             last_cat, quote_text, author = LAST_SHOWN[user_id]
-            # kategori butonuyla oynanmışsa bile yine de kullanıcının gördüğü son sözü kaydediyoruz
             real_category = last_cat or category
             add_favorite(user_id, real_category, lang, quote_text, author)
 
