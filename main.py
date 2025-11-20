@@ -28,7 +28,7 @@ from quotes import SOZLER, normalize_author
 # --------------------------------
 
 # KENDI TOKEN'INI BURAYA YAZ
-BOT_TOKEN = "BURAYA_BOT_TOKENINI_YAZ"
+BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 
 # AdsGram
 ADSGRAM_BLOCK_ID = 17933  # sen kendi block ID'ni buraya yazdınsa dokunma
