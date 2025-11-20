@@ -3,7 +3,6 @@ import datetime
 import logging
 import sqlite3
 import urllib.parse
-import re
 from typing import Optional, Tuple, Dict
 
 import requests
@@ -12,7 +11,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -28,11 +26,11 @@ from quotes import SOZLER, normalize_author
 # AYARLAR
 # --------------------------------
 
-# KENDİ TOKEN'INI BURAYA YAZ
+# BOT TOKEN
 BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 
 # AdsGram
-ADSGRAM_BLOCK_ID = 17933  # kendi block ID'in
+ADSGRAM_BLOCK_ID = 17933  # tek block ID
 
 # Admin
 ADMIN_ID = 5664983086
@@ -219,7 +217,7 @@ def add_suggestion(
 
 
 # --------------------------------
-# AdsGram yardımcı: veri çek (JSON döner ya da None)
+# AdsGram – sadece var/yok + butonlar
 # --------------------------------
 def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict]:
     try:
@@ -251,27 +249,11 @@ def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict
         if not raw.startswith("{"):
             return None
 
-        data = resp.json()
-        return data
+        return resp.json()
 
     except Exception as e:
         logger.warning("AdsGram hata (lang=%s): %s", lang_param, e)
         return None
-
-
-def html_to_plain(text_html: str) -> str:
-    """
-    AdsGram text_html içinden basitçe HTML tag'lerini kaldırıp satır sonlarını korur.
-    """
-    if not text_html:
-        return ""
-    # Satır sonları için <br> -> \n
-    text = text_html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
-    # Diğer tüm tag'leri sil
-    text = re.sub(r"<.*?>", "", text)
-    # Çift boşlukları toparla
-    text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
-    return text
 
 
 def get_adsgram_inline(user_id: int, lang: str):
@@ -279,7 +261,7 @@ def get_adsgram_inline(user_id: int, lang: str):
     TR -> önce tr, yoksa en
     EN -> en
     diğer -> language'siz
-    Dönen: (ad_plain_text, ad_button_rows) veya (None, None)
+    Dönen: (has_ad: bool, ad_button_rows or None)
     """
     data: Optional[dict] = None
 
@@ -293,18 +275,12 @@ def get_adsgram_inline(user_id: int, lang: str):
         data = fetch_adsgram_data(user_id, None)
 
     if data is None:
-        return None, None
+        return False, None
 
-    text_html = data.get("text_html") or ""
     click_url = data.get("click_url")
     button_name = data.get("button_name")
     reward_name = data.get("button_reward_name")
     reward_url = data.get("reward_url")
-
-    if not text_html and not (button_name and click_url):
-        return None, None
-
-    ad_plain = html_to_plain(text_html)
 
     buttons = []
     if button_name and click_url:
@@ -312,7 +288,10 @@ def get_adsgram_inline(user_id: int, lang: str):
     if reward_name and reward_url:
         buttons.append([InlineKeyboardButton(reward_name, url=reward_url)])
 
-    return ad_plain, buttons
+    if not buttons:
+        return False, None
+
+    return True, buttons
 
 
 # --------------------------------
@@ -332,20 +311,33 @@ def set_user_lang(user_id: int, lang: str):
 
 
 def build_category_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """
+    Kategori butonlarını 2 sütunlu grid olarak döndür.
+    """
     buttons = []
-    for key, data in SOZLER.items():
+    row = []
+    for idx, (key, data) in enumerate(SOZLER.items()):
         if lang == "en":
             label = data.get("label_en", data.get("label_tr", key.title()))
         else:
             label = data.get("label_tr", data.get("label_en", key.title()))
-        buttons.append([InlineKeyboardButton(label, callback_data=f"cat_{key}")])
+
+        row.append(InlineKeyboardButton(label, callback_data=f"cat_{key}"))
+
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+
+    if row:
+        buttons.append(row)
+
     return InlineKeyboardMarkup(buttons)
 
 
 def build_main_menu_text(lang: str) -> str:
     if lang == "en":
         return (
-            "Daily Quote Bot\n\n"
+            "🌍 Daily Quote Bot\n\n"
             "Commands:\n"
             "/random   - Random quote\n\n"
             "/today    - Quote of the day\n\n"
@@ -354,7 +346,7 @@ def build_main_menu_text(lang: str) -> str:
         )
     else:
         return (
-            "Daily Quote Bot\n\n"
+            "🌍 Daily Quote Bot\n\n"
             "Komutlar:\n"
             "/random   - Rastgele bir söz\n\n"
             "/today    - Bugünün sözü\n\n"
@@ -419,20 +411,21 @@ def build_share_keyboard(
     lang: str,
     extra_rows=None,
 ) -> InlineKeyboardMarkup:
+    # Daha kısa metinler
     if lang == "en":
-        fav_txt = "⭐ Add to Favorites"
-        share_tg_txt = "📤 Share on Telegram"
-        share_wa_txt = "📲 Share on WhatsApp"
-        change_quote_txt = "🔄 Change Quote"
-        change_topic_txt = "📂 Change Topic"
-        change_lang_txt = "🌐 Change Language"
+        fav_txt = "⭐ Favorite"
+        share_tg_txt = "📤 Telegram"
+        share_wa_txt = "📲 WhatsApp"
+        change_quote_txt = "🔄 Change"
+        change_topic_txt = "📂 Topic"
+        change_lang_txt = "🌐 Language"
     else:
-        fav_txt = "⭐ Favorilere Ekle"
-        share_tg_txt = "📤 Telegram'da Paylaş"
-        share_wa_txt = "📲 WhatsApp'ta Paylaş"
-        change_quote_txt = "🔄 Sözü Değiştir"
-        change_topic_txt = "📂 Konuyu Değiştir"
-        change_lang_txt = "🌐 Dili Değiştir"
+        fav_txt = "⭐ Favori"
+        share_tg_txt = "📤 Telegram"
+        share_wa_txt = "📲 WhatsApp"
+        change_quote_txt = "🔄 Değiştir"
+        change_topic_txt = "📂 Konu"
+        change_lang_txt = "🌐 Dil"
 
     full_share = build_share_text(quote_text, author, lang)
     encoded = urllib.parse.quote_plus(full_share)
@@ -443,17 +436,23 @@ def build_share_keyboard(
     )
     whatsapp_share_url = f"https://wa.me/?text={encoded}"
 
-    buttons = [
-        [InlineKeyboardButton(fav_txt, callback_data=f"fav|{category}")],
-        [InlineKeyboardButton(share_tg_txt, url=telegram_share_url)],
-        [InlineKeyboardButton(share_wa_txt, url=whatsapp_share_url)],
-        [InlineKeyboardButton(change_quote_txt, callback_data=f"change_{category}")],
-        [InlineKeyboardButton(change_topic_txt, callback_data="choose_topic")],
-        [InlineKeyboardButton(change_lang_txt, callback_data="open_lang")],
-    ]
+    buttons = []
 
+    # Önce reklam butonları (varsa) – sözle aynı blokta görünsün
     if extra_rows:
         buttons.extend(extra_rows)
+
+    # Ardından botun kendi butonları
+    buttons.extend(
+        [
+            [InlineKeyboardButton(fav_txt, callback_data=f"fav|{category}")],
+            [InlineKeyboardButton(share_tg_txt, url=telegram_share_url)],
+            [InlineKeyboardButton(share_wa_txt, url=whatsapp_share_url)],
+            [InlineKeyboardButton(change_quote_txt, callback_data=f"change_{category}")],
+            [InlineKeyboardButton(change_topic_txt, callback_data="choose_topic")],
+            [InlineKeyboardButton(change_lang_txt, callback_data="open_lang")],
+        ]
+    )
 
     return InlineKeyboardMarkup(buttons)
 
@@ -507,7 +506,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     text = (
-        "Daily Quote Bot\n\n"
+        "🌍 Daily Quote Bot\n\n"
         "Lütfen dili seç:\n\n"
         "Please choose your language:"
     )
@@ -563,14 +562,12 @@ async def choose_topic_screen(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --------------------------------
 # Söz + reklam metni düz string
 # --------------------------------
-def build_quote_text(prefix: str, quote_text: str, author: str, ad_plain: Optional[str], lang: str) -> str:
+def build_quote_text(prefix: str, quote_text: str, author: str, has_ad: bool, lang: str) -> str:
     text = prefix + quote_text
     if author:
         text += f"\n\n— {author}"
-    if ad_plain:
-        text += "\n\n"
-        text += "Sponsored\n\n" if lang == "en" else "Sponsored\n\n"
-        text += ad_plain
+    if has_ad:
+        text += "\n\nSponsored"
     return text
 
 
@@ -605,14 +602,14 @@ async def send_quote_for_category(
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
 
-    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
+    has_ad, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
         prefix = "Quote of the Day:\n\n"
     else:
         prefix = "Günün Sözü:\n\n"
 
-    full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
+    full_text = build_quote_text(prefix, quote_text, author, has_ad, lang)
     keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
 
     try:
@@ -646,14 +643,14 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
+    has_ad, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
         prefix = f"Random Quote ({SOZLER[category]['label_en']}):\n\n"
     else:
         prefix = f"Rastgele Söz ({SOZLER[category]['label_tr']}):\n\n"
 
-    full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
+    full_text = build_quote_text(prefix, quote_text, author, has_ad, lang)
 
     if update.message:
         keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
@@ -683,14 +680,14 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
+    has_ad, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
         prefix = "Quote of the Day:\n\n"
     else:
         prefix = "Bugünün Sözü:\n\n"
 
-    full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
+    full_text = build_quote_text(prefix, quote_text, author, has_ad, lang)
 
     if update.message:
         keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
@@ -721,17 +718,17 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
             USER_LAST_CATEGORY[user_id] = category
             LAST_SHOWN[user_id] = (category, quote_text, author)
 
-            ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
+            has_ad, ad_buttons = get_adsgram_inline(user_id, lang)
 
             if lang == "en":
                 prefix = "Quote of the Day:\n\n"
             else:
                 prefix = "Bugünün Sözü:\n\n"
 
-            full_text = build_quote_text(prefix, quote_text, author, ad_plain, lang)
-            reply_markup = (
-                InlineKeyboardMarkup(ad_buttons) if ad_buttons else None
-            )
+            full_text = build_quote_text(prefix, quote_text, author, has_ad, lang)
+
+            # Günlük gönderimde sadece reklam butonları gösterebiliriz (opsiyonel)
+            reply_markup = InlineKeyboardMarkup(ad_buttons) if ad_buttons else None
 
             await context.bot.send_message(
                 chat_id=user_id,
