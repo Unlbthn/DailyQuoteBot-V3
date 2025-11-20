@@ -3,6 +3,7 @@ import datetime
 import logging
 import sqlite3
 import urllib.parse
+import html
 from typing import Optional, Tuple, Dict
 
 import requests
@@ -31,7 +32,7 @@ from quotes import SOZLER, normalize_author
 BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 
 # AdsGram
-ADSGRAM_BLOCK_ID = 17933  # sen kendi block ID'ni buraya yazdınsa dokunma
+ADSGRAM_BLOCK_ID = 17933  # senin block ID'in
 
 # Admin
 ADMIN_ID = 5664983086
@@ -54,11 +55,8 @@ logger = logging.getLogger(__name__)
 # GLOBAL DURUMLAR (RAM)
 # --------------------------------
 USER_LANG: Dict[int, str] = {}  # user_id -> "tr" / "en"
-USER_LAST_CATEGORY: Dict[int, str] = {}  # kullanıcı en son hangi kategoriden söz aldı
-
-# Kullanıcıya gösterilen SON sözü saklıyoruz:
-# user_id -> (category, quote_text, author)
-LAST_SHOWN: Dict[int, Tuple[str, str, str]] = {}
+USER_LAST_CATEGORY: Dict[int, str] = {}
+LAST_SHOWN: Dict[int, Tuple[str, str, str]] = {}  # user_id -> (category, quote, author)
 
 
 # --------------------------------
@@ -118,10 +116,6 @@ def init_db():
 
 
 def upsert_user(user_id: int, lang: Optional[str] = None):
-    """
-    Her /start, /random, /today vs çağrısında user kaydı güncellenir.
-    Tüm user_id'ler kalıcı olarak DB'de tutuluyor.
-    """
     now = datetime.datetime.utcnow().isoformat()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -179,10 +173,6 @@ def add_favorite(
 
 
 def get_favorites(user_id: int, limit: int = 50):
-    """
-    Tüm dillerdeki favorileri birlikte getiriyoruz (TR+EN karışık).
-    DB'de hiçbir favori silinmez, sadece burada max limit kadar gösteriyoruz.
-    """
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -232,10 +222,6 @@ def add_suggestion(
 # AdsGram yardımcı: veri çek (JSON döner ya da None)
 # --------------------------------
 def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict]:
-    """
-    Belirli bir language parametresiyle AdsGram'dan reklam çekmeyi dener.
-    Uygun reklam yoksa veya yanıt JSON değilse None döner.
-    """
     try:
         params = {
             "tgid": str(user_id),
@@ -263,7 +249,6 @@ def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict
 
         raw = resp.text.strip()
         if not raw.startswith("{"):
-            # Reklam yoksa bazen düz metin dönebiliyor
             return None
 
         data = resp.json()
@@ -274,28 +259,17 @@ def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict
         return None
 
 
-# --------------------------------
-# AdsGram: reklam mesajı gönder (KOMPAKT + TR→EN FALLBACK)
-# --------------------------------
-async def send_adsgram_ad(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    user_id: int,
-    lang: Optional[str] = None,
-):
+def get_adsgram_inline(user_id: int, lang: str):
     """
-    Önce kullanıcının diline göre reklam çekmeye çalışır.
-    - lang == 'tr' ise: önce TR dener, reklam yoksa EN'e düşer.
-    - lang == 'en' ise: direkt EN dener.
-    - Diğer durumlarda: language parametresi olmadan dener.
-    Reklam varsa küçük bir "Sponsored" metni olarak gönderir (görsel YOK).
+    TR -> önce tr, yoksa en
+    EN -> en
+    diğer -> language'siz
+    Dönen: (ad_text_html, ad_button_rows) veya (None, None)
     """
     data: Optional[dict] = None
 
     if lang == "tr":
-        # 1) Önce TR dene
         data = fetch_adsgram_data(user_id, "tr")
-        # 2) Reklam yoksa EN'e fallback
         if data is None:
             data = fetch_adsgram_data(user_id, "en")
     elif lang == "en":
@@ -304,7 +278,7 @@ async def send_adsgram_ad(
         data = fetch_adsgram_data(user_id, None)
 
     if data is None:
-        return
+        return None, None
 
     text_html = data.get("text_html") or ""
     click_url = data.get("click_url")
@@ -312,12 +286,8 @@ async def send_adsgram_ad(
     reward_name = data.get("button_reward_name")
     reward_url = data.get("reward_url")
 
-    # image_url'u BİLEREK kullanmıyoruz -> büyük görsel yok
-    # image_url = data.get("image_url")
-
-    # Hem text yok hem de tıklanacak buton yoksa hiç göndermeyelim
     if not text_html and not (button_name and click_url):
-        return
+        return None, None
 
     buttons = []
     if button_name and click_url:
@@ -325,20 +295,7 @@ async def send_adsgram_ad(
     if reward_name and reward_url:
         buttons.append([InlineKeyboardButton(reward_name, url=reward_url)])
 
-    reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
-
-    full_text = "Sponsored\n\n" + text_html
-
-    try:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=full_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-            protect_content=True,
-        )
-    except Exception as e:
-        logger.warning("AdsGram send_message hata: %s", e)
+    return text_html, buttons
 
 
 # --------------------------------
@@ -396,10 +353,6 @@ def build_main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
 
 
 def choose_random_quote(category: str, lang: str) -> Tuple[str, str]:
-    """
-    Seçilen kategoriden ve dilden bir söz (metin, yazar) döndürür.
-    yazar boş string olabilir -> ekranda hiç gösterilmeyecek.
-    """
     if category not in SOZLER:
         category = "motivation"
 
@@ -412,7 +365,7 @@ def choose_random_quote(category: str, lang: str) -> Tuple[str, str]:
                 return "", ""
             metin_tr, author = random.choice(lst)
             return metin_tr, normalize_author(author)
-        metin_en, _metin_tr, author = random.choice(lst)
+        metin_en, _mt_tr, author = random.choice(lst)
         return metin_en, normalize_author(author)
     else:
         lst = data.get("tr", [])
@@ -420,7 +373,7 @@ def choose_random_quote(category: str, lang: str) -> Tuple[str, str]:
             lst = data.get("en", [])
             if not lst:
                 return "", ""
-            metin_en, _metin_tr, author = random.choice(lst)
+            metin_en, _mt_tr, author = random.choice(lst)
             return metin_en, normalize_author(author)
         metin_tr, author = random.choice(lst)
         return metin_tr, normalize_author(author)
@@ -443,48 +396,47 @@ def build_share_text(quote_text: str, author: str, lang: str) -> str:
 
 
 def build_share_keyboard(
-    category: str, quote_text: str, author: str, lang: str
+    category: str,
+    quote_text: str,
+    author: str,
+    lang: str,
+    extra_rows=None,
 ) -> InlineKeyboardMarkup:
     if lang == "en":
         fav_txt = "⭐ Add to Favorites"
-        change_txt = "Change 🔄"
-        back_txt = "⬅ Choose Topic"
         share_tg_txt = "📤 Share on Telegram"
         share_wa_txt = "📲 Share on WhatsApp"
+        change_quote_txt = "🔄 Change Quote"
+        change_topic_txt = "📂 Change Topic"
+        change_lang_txt = "🌐 Change Language"
     else:
         fav_txt = "⭐ Favorilere Ekle"
-        change_txt = "Değiştir 🔄"
-        back_txt = "⬅ Konu Seç"
         share_tg_txt = "📤 Telegram'da Paylaş"
         share_wa_txt = "📲 WhatsApp'ta Paylaş"
+        change_quote_txt = "🔄 Sözü Değiştir"
+        change_topic_txt = "📂 Konuyu Değiştir"
+        change_lang_txt = "🌐 Dili Değiştir"
 
     full_share = build_share_text(quote_text, author, lang)
     encoded = urllib.parse.quote_plus(full_share)
 
     bot_link = f"https://t.me/{BOT_USERNAME}"
-    telegram_share_url = f"https://t.me/share/url?url={urllib.parse.quote_plus(bot_link)}&text={encoded}"
+    telegram_share_url = (
+        f"https://t.me/share/url?url={urllib.parse.quote_plus(bot_link)}&text={encoded}"
+    )
     whatsapp_share_url = f"https://wa.me/?text={encoded}"
 
     buttons = [
-        [
-            InlineKeyboardButton(
-                fav_txt,
-                callback_data=f"fav|{category}",
-            )
-        ],
-        [
-            InlineKeyboardButton(share_tg_txt, url=telegram_share_url),
-        ],
-        [
-            InlineKeyboardButton(share_wa_txt, url=whatsapp_share_url),
-        ],
-        [
-            InlineKeyboardButton(change_txt, callback_data=f"change_{category}"),
-        ],
-        [
-            InlineKeyboardButton(back_txt, callback_data="choose_topic"),
-        ],
+        [InlineKeyboardButton(fav_txt, callback_data=f"fav|{category}")],
+        [InlineKeyboardButton(share_tg_txt, url=telegram_share_url)],
+        [InlineKeyboardButton(share_wa_txt, url=whatsapp_share_url)],
+        [InlineKeyboardButton(change_quote_txt, callback_data=f"change_{category}")],
+        [InlineKeyboardButton(change_topic_txt, callback_data="choose_topic")],
+        [InlineKeyboardButton(change_lang_txt, callback_data="open_lang")],
     ]
+
+    if extra_rows:
+        buttons.extend(extra_rows)
 
     return InlineKeyboardMarkup(buttons)
 
@@ -493,12 +445,8 @@ def build_share_keyboard(
 # Bugünün sözü
 # --------------------------------
 def build_today_quote_text(user_id: int) -> Tuple[str, str, str]:
-    """
-    (text, author, category_key) döndürür.
-    """
     lang = get_user_lang(user_id)
     category = "motivation"
-
     today_ordinal = datetime.date.today().toordinal()
     data = SOZLER.get(category, {})
 
@@ -512,7 +460,7 @@ def build_today_quote_text(user_id: int) -> Tuple[str, str, str]:
             metin_tr, author = lst[idx]
             return metin_tr, normalize_author(author), category
         idx = today_ordinal % len(lst)
-        metin_en, _metin_tr, author = lst[idx]
+        metin_en, _tr, author = lst[idx]
         return metin_en, normalize_author(author), category
     else:
         lst = data.get("tr", [])
@@ -521,7 +469,7 @@ def build_today_quote_text(user_id: int) -> Tuple[str, str, str]:
             if not lst:
                 return "", "", category
             idx = today_ordinal % len(lst)
-            metin_en, _metin_tr, author = lst[idx]
+            metin_en, _tr, author = lst[idx]
             return metin_en, normalize_author(author), category
         idx = today_ordinal % len(lst)
         metin_tr, author = lst[idx]
@@ -596,6 +544,20 @@ async def choose_topic_screen(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # --------------------------------
+# Ortak: söz + reklam metnini HTML formatta kur
+# --------------------------------
+def build_quote_html(prefix: str, quote_text: str, author: str, ad_html: Optional[str]):
+    q = html.escape(quote_text)
+    a = html.escape(author) if author else ""
+    text = f"<b>{prefix}</b><br><br>{q}"
+    if author:
+        text += f"<br><br>— {a}"
+    if ad_html:
+        text += "<br><br><b>Sponsored</b><br><br>" + ad_html
+    return text
+
+
+# --------------------------------
 # Seçilen kategoriden söz getir
 # --------------------------------
 async def send_quote_for_category(
@@ -626,29 +588,24 @@ async def send_quote_for_category(
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
 
+    ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
+
     if lang == "en":
-        prefix = "Quote of the Day:\n\n"
+        prefix = "Quote of the Day:"
     else:
-        prefix = "Günün Sözü:\n\n"
+        prefix = "Günün Sözü:"
 
-    if author:
-        full_text = f"{prefix}{quote_text}\n\n— {author}"
-    else:
-        full_text = f"{prefix}{quote_text}"
-
-    keyboard = build_share_keyboard(category, quote_text, author, lang)
+    full_html = build_quote_html(prefix, quote_text, author, ad_text)
+    keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
 
     try:
-        await query.edit_message_text(full_text, reply_markup=keyboard)
+        await query.edit_message_text(
+            full_html,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+        )
     except BadRequest as e:
         logger.warning("send_quote_for_category edit hata: %s", e)
-
-    await send_adsgram_ad(
-        context=context,
-        chat_id=query.message.chat_id,
-        user_id=user_id,
-        lang=lang,
-    )
 
 
 # --------------------------------
@@ -673,26 +630,20 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     LAST_SHOWN[user_id] = (category, quote_text, author)
+    ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
-        prefix = f"Random Quote ({SOZLER[category]['label_en']}):\n\n"
+        prefix = f"Random Quote ({SOZLER[category]['label_en']}):"
     else:
-        prefix = f"Rastgele Söz ({SOZLER[category]['label_tr']}):\n\n"
+        prefix = f"Rastgele Söz ({SOZLER[category]['label_tr']}):"
 
-    if author:
-        full_text = f"{prefix}{quote_text}\n\n— {author}"
-    else:
-        full_text = f"{prefix}{quote_text}"
-
+    full_html = build_quote_html(prefix, quote_text, author, ad_text)
     if update.message:
-        keyboard = build_share_keyboard(category, quote_text, author, lang)
-        await update.message.reply_text(full_text, reply_markup=keyboard)
-
-        await send_adsgram_ad(
-            context=context,
-            chat_id=update.effective_chat.id,
-            user_id=user_id,
-            lang=lang,
+        keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
+        await update.message.reply_text(
+            full_html,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
         )
 
 
@@ -716,26 +667,21 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
+    ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
 
     if lang == "en":
-        prefix = "Quote of the Day:\n\n"
+        prefix = "Quote of the Day:"
     else:
-        prefix = "Bugünün Sözü:\n\n"
+        prefix = "Bugünün Sözü:"
 
-    if author:
-        full_text = f"{prefix}{quote_text}\n\n— {author}"
-    else:
-        full_text = f"{prefix}{quote_text}"
+    full_html = build_quote_html(prefix, quote_text, author, ad_text)
 
     if update.message:
-        keyboard = build_share_keyboard(category, quote_text, author, lang)
-        await update.message.reply_text(full_text, reply_markup=keyboard)
-
-        await send_adsgram_ad(
-            context=context,
-            chat_id=update.effective_chat.id,
-            user_id=user_id,
-            lang=lang,
+        keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
+        await update.message.reply_text(
+            full_html,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
         )
 
 
@@ -760,22 +706,22 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
             USER_LAST_CATEGORY[user_id] = category
             LAST_SHOWN[user_id] = (category, quote_text, author)
 
+            ad_text, ad_buttons = get_adsgram_inline(user_id, lang)
             if lang == "en":
-                prefix = "Quote of the Day:\n\n"
+                prefix = "Quote of the Day:"
             else:
-                prefix = "Bugünün Sözü:\n\n"
+                prefix = "Bugünün Sözü:"
 
-            if author:
-                full_text = f"{prefix}{quote_text}\n\n— {author}"
-            else:
-                full_text = f"{prefix}{quote_text}"
+            full_html = build_quote_html(prefix, quote_text, author, ad_text)
+            reply_markup = (
+                InlineKeyboardMarkup(ad_buttons) if ad_buttons else None
+            )
 
-            msg = await context.bot.send_message(chat_id=user_id, text=full_text)
-            await send_adsgram_ad(
-                context=context,
-                chat_id=msg.chat_id,
-                user_id=user_id,
-                lang=lang,
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=full_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
             )
         except Exception as e:
             logger.warning("daily_quote hata (user %s): %s", user_id, e)
@@ -783,12 +729,12 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------
-# /favorites – favoriler + silme butonu
+# /favorites – favoriler + silme
 # --------------------------------
 async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
-    rows = get_favorites(user_id, limit=50)  # TR+EN birlikte, son 50
+    rows = get_favorites(user_id, limit=50)
 
     if not rows:
         msg = (
@@ -801,12 +747,12 @@ async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg)
         return
 
-    if lang == "tr":
-        header = "Favori sözlerin (en fazla 50 adet gösteriliyor):\n"
-    else:
-        header = "Your favorite quotes (showing up to 50):\n"
-
     if update.message:
+        header = (
+            "Favori sözlerin (en fazla 50 adet gösteriliyor):\n"
+            if lang == "tr"
+            else "Your favorite quotes (showing up to 50):\n"
+        )
         await update.message.reply_text(header)
 
         for r in rows:
@@ -874,7 +820,6 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --------------------------------
 # /suggest – söz önerisi
-# /suggest kategori | söz | yazar
 # --------------------------------
 async def suggest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -885,20 +830,22 @@ async def suggest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     parts = update.message.text.split(" ", 1)
     if len(parts) < 2:
-        if lang == "en":
-            msg = "Usage: /suggest category | quote | author(optional)"
-        else:
-            msg = "Kullanım: /suggest kategori | söz | yazar (opsiyonel)"
+        msg = (
+            "Kullanım: /suggest kategori | söz | yazar (opsiyonel)"
+            if lang == "tr"
+            else "Usage: /suggest category | quote | author(optional)"
+        )
         await update.message.reply_text(msg)
         return
 
     payload = parts[1]
     fields = [f.strip() for f in payload.split("|")]
     if len(fields) < 2:
-        if lang == "en":
-            msg = "Usage: /suggest category | quote | author(optional)"
-        else:
-            msg = "Kullanım: /suggest kategori | söz | yazar (opsiyonel)"
+        msg = (
+            "Kullanım: /suggest kategori | söz | yazar (opsiyonel)"
+            if lang == "tr"
+            else "Usage: /suggest category | quote | author(optional)"
+        )
         await update.message.reply_text(msg)
         return
 
@@ -944,7 +891,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------
-# Callback router (butonlar)
+# Callback router
 # --------------------------------
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -960,6 +907,22 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dil_sec(update, context, "en")
         return
 
+    # Dil değiştir butonu (ayrı mesajla menü aç)
+    if data == "open_lang":
+        try:
+            await query.answer()
+        except BadRequest:
+            pass
+        keyboard = [
+            [
+                InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+            ]
+        ]
+        text = "Dili değiştir:" if lang == "tr" else "Change language:"
+        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
     # Konu seç ekranı
     if data == "choose_topic":
         await choose_topic_screen(update, context)
@@ -971,21 +934,19 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_quote_for_category(update, context, category)
         return
 
-    # Değiştir butonu
+    # Sözü değiştir
     if data.startswith("change_"):
         category = data.replace("change_", "")
         await send_quote_for_category(update, context, category)
         return
 
-    # Favoriye ekle (gösterilen SON sözü kaydediyoruz)
+    # Favoriye ekle
     if data.startswith("fav|"):
         _, category = data.split("|", 1)
-
         if user_id in LAST_SHOWN:
             last_cat, quote_text, author = LAST_SHOWN[user_id]
             real_category = last_cat or category
             add_favorite(user_id, real_category, lang, quote_text, author)
-
         try:
             await query.answer(
                 "Favorilerine eklendi." if lang == "tr" else "Added to favorites.",
@@ -1010,10 +971,11 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         delete_favorite(fav_id, user_id)
 
         msg_text = query.message.text or ""
-        if lang == "tr":
-            suffix = "\n\n(Favorilerden çıkarıldı)"
-        else:
-            suffix = "\n\n(Removed from favorites)"
+        suffix = (
+            "\n\n(Favorilerden çıkarıldı)"
+            if lang == "tr"
+            else "\n\n(Removed from favorites)"
+        )
 
         try:
             await query.edit_message_text(msg_text + suffix)
@@ -1056,7 +1018,6 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    # Günlük 10:00 job (sunucu zamanına göre)
     if app.job_queue is not None:
         app.job_queue.run_daily(
             send_daily_quote,
