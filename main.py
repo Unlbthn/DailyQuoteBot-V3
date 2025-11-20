@@ -31,7 +31,8 @@ from quotes import SOZLER, normalize_author
 BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 
 # AdsGram
-ADSGRAM_BLOCK_ID = 16417
+ADSGRAM_BLOCK_ID = 17933
+
 
 # Admin
 ADMIN_ID = 5664983086
