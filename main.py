@@ -232,6 +232,9 @@ def add_suggestion(
 # --------------------------------
 # AdsGram: reklam mesajı gönder
 # --------------------------------
+# --------------------------------
+# AdsGram: reklam mesajı gönder (KOMPAKT VERSİYON – SADECE METİN)
+# --------------------------------
 async def send_adsgram_ad(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -239,8 +242,8 @@ async def send_adsgram_ad(
     lang: Optional[str] = None,
 ):
     """
-    AdsGram API'den reklam çekip, varsa ayrı bir Sponsored mesajı olarak gönderir.
-    Reklam yoksa sessizce çıkar.
+    AdsGram API'den reklam çekip, VARSA küçük bir Sponsored metni olarak gönderir.
+    image_url gelse bile GÖRMEZDEN GELİYORUZ -> büyük görsel yok, söz yukarı kaçmıyor.
     """
     try:
         params = {
@@ -265,8 +268,8 @@ async def send_adsgram_ad(
             return
 
         raw = resp.text.strip()
+        # Reklam yoksa bazen düz metin dönebiliyor (JSON olmayan)
         if not raw.startswith("{"):
-            # reklam yoksa bazen düz text dönüyor
             return
 
         data = resp.json()
@@ -275,14 +278,17 @@ async def send_adsgram_ad(
         logger.warning("AdsGram hata: %s", e)
         return
 
-    text_html = data.get("text_html")
+    text_html = data.get("text_html") or ""
     click_url = data.get("click_url")
     button_name = data.get("button_name")
     reward_name = data.get("button_reward_name")
     reward_url = data.get("reward_url")
-    image_url = data.get("image_url")
 
-    if not text_html and not image_url:
+    # image_url'u BİLEREK kullanmıyoruz -> büyük görsel yok
+    # image_url = data.get("image_url")
+
+    # Hem text yok hem de tıklanacak buton yoksa hiç göndermeyelim
+    if not text_html and not (button_name and click_url):
         return
 
     buttons = []
@@ -292,18 +298,11 @@ async def send_adsgram_ad(
         buttons.append([InlineKeyboardButton(reward_name, url=reward_url)])
 
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
-    full_text = f"Sponsored\n\n{text_html or ''}"
 
-    if image_url:
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=image_url,
-            caption=full_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-            protect_content=True,
-        )
-    else:
+    # Küçük, sade bir “Sponsored” mesajı
+    full_text = "Sponsored\n\n" + text_html
+
+    try:
         await context.bot.send_message(
             chat_id=chat_id,
             text=full_text,
@@ -311,7 +310,8 @@ async def send_adsgram_ad(
             reply_markup=reply_markup,
             protect_content=True,
         )
-
+    except Exception as e:
+        logger.warning("AdsGram send_message hata: %s", e)
 
 # --------------------------------
 # Yardımcılar – dil, kategori, metin, buton
