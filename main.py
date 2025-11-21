@@ -209,7 +209,7 @@ def add_suggestion(
 
 
 # --------------------------------
-# AdsGram – metni temizleme
+# AdsGram – metni temizleme + tek OPEN butonu
 # --------------------------------
 def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict]:
     try:
@@ -257,17 +257,16 @@ def html_to_plain(text_html: str) -> str:
     text = text_html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     text = re.sub(r"<.*?>", "", text)
     text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
-    # Çok uzunsa kısalt
-    max_len = 220
+    max_len = 400
     if len(text) > max_len:
         text = text[: max_len - 3].rstrip() + "..."
     return text
 
 
-def get_adsgram_inline(user_id: int, lang: str):
+def get_adsgram(user_id: int, lang: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Reklam metni + butonlar.
-    Dönen: (ad_plain_text or None, ad_button_rows or None)
+    Reklam metni + tek OPEN butonunun URL'i.
+    Dönen: (ad_plain_text or None, open_url or None)
     """
     data: Optional[dict] = None
 
@@ -285,22 +284,12 @@ def get_adsgram_inline(user_id: int, lang: str):
 
     text_html = data.get("text_html") or ""
     click_url = data.get("click_url")
-    button_name = data.get("button_name")
-    reward_name = data.get("button_reward_name")
-    reward_url = data.get("reward_url")
 
     ad_plain = html_to_plain(text_html)
-    buttons = []
-
-    if button_name and click_url:
-        buttons.append([InlineKeyboardButton(button_name, url=click_url)])
-    if reward_name and reward_url:
-        buttons.append([InlineKeyboardButton(reward_name, url=reward_url)])
-
-    if not ad_plain and not buttons:
+    if not ad_plain and not click_url:
         return None, None
 
-    return ad_plain or None, (buttons or None)
+    return (ad_plain or None), (click_url or None)
 
 
 # --------------------------------
@@ -418,23 +407,23 @@ def build_share_keyboard(
     quote_text: str,
     author: str,
     lang: str,
-    extra_rows=None,
+    open_url: Optional[str],
 ) -> InlineKeyboardMarkup:
-    # Daha kısa metinler
+    # Kısa buton metinleri
     if lang == "en":
-        fav_txt = "⭐ Favorite"
-        share_tg_txt = "📤 Telegram"
-        share_wa_txt = "📲 WhatsApp"
-        change_quote_txt = "🔄 Change"
-        change_topic_txt = "📂 Topic"
-        change_lang_txt = "🌐 Language"
+        fav_txt = "⭐ Fav"
+        change_txt = "🔄 Change"
+        wa_txt = "📲 WhatsApp"
+        tg_txt = "📤 Telegram"
+        topic_txt = "⬅️ Topic"
+        lang_txt = "✖️ Language"
     else:
         fav_txt = "⭐ Favori"
-        share_tg_txt = "📤 Telegram"
-        share_wa_txt = "📲 WhatsApp"
-        change_quote_txt = "🔄 Değiştir"
-        change_topic_txt = "📂 Konu"
-        change_lang_txt = "🌐 Dil"
+        change_txt = "🔄 Değiştir"
+        wa_txt = "📲 WhatsApp"
+        tg_txt = "📤 Telegram"
+        topic_txt = "⬅️ Konu"
+        lang_txt = "✖️ Dil"
 
     full_share = build_share_text(quote_text, author, lang)
     encoded = urllib.parse.quote_plus(full_share)
@@ -447,27 +436,29 @@ def build_share_keyboard(
 
     buttons = []
 
-    # Önce reklam butonları (varsa)
-    if extra_rows:
-        buttons.extend(extra_rows)
-
-    # Ardından botun kendi butonları
-    buttons.extend(
+    # 1. satır: bütün bot butonları yan yana
+    buttons.append(
         [
-            [InlineKeyboardButton(fav_txt, callback_data=f"fav|{category}")],
-            [InlineKeyboardButton(share_tg_txt, url=telegram_share_url)],
-            [InlineKeyboardButton(share_wa_txt, url=whatsapp_share_url)],
-            [InlineKeyboardButton(change_quote_txt, callback_data=f"change_{category}")],
-            [InlineKeyboardButton(change_topic_txt, callback_data="choose_topic")],
-            [InlineKeyboardButton(change_lang_txt, callback_data="open_lang")],
+            InlineKeyboardButton(fav_txt, callback_data=f"fav|{category}"),
+            InlineKeyboardButton(change_txt, callback_data=f"change_{category}"),
+            InlineKeyboardButton(wa_txt, url=whatsapp_share_url),
+            InlineKeyboardButton(tg_txt, url=telegram_share_url),
+            InlineKeyboardButton(topic_txt, callback_data="choose_topic"),
+            InlineKeyboardButton(lang_txt, callback_data="open_lang"),
         ]
     )
+
+    # 2. satır: reklam OPEN
+    if open_url:
+        buttons.append(
+            [InlineKeyboardButton("OPEN", url=open_url)]
+        )
 
     return InlineKeyboardMarkup(buttons)
 
 
 # --------------------------------
-# Bugünün sözü
+# Bugünün sözü (metin)
 # --------------------------------
 def build_today_quote_text(user_id: int) -> Tuple[str, str, str]:
     lang = get_user_lang(user_id)
@@ -502,33 +493,50 @@ def build_today_quote_text(user_id: int) -> Tuple[str, str, str]:
 
 
 # --------------------------------
-# Metin bloğunu kur: Reklam ÜSTTE, sonra söz
+# Mesaj şablonu: üstte başlık + söz, altta reklam bloğu
 # --------------------------------
-def build_quote_text(
-    ad_plain: Optional[str],
-    prefix: str,
+def build_full_message_text(
+    lang: str,
     quote_text: str,
     author: str,
-    lang: str,
+    ad_text: Optional[str],
 ) -> str:
-    parts = []
+    if lang == "en":
+        header = "Quote of the Day"
+        share_line = "If you liked today’s quote, support us by sharing with a friend. 💜"
+        ad_header = "Sponsored"
+        ad_support = "You can support us by tapping the ad. 💫"
+    else:
+        header = "Günün Sözü"
+        share_line = "Günün sözünü beğendiysen bize destek için bir arkadaşınla paylaş. 💜"
+        ad_header = "Sponsored"
+        ad_support = "Bize destek olmak için reklama tıklayabilirsin. 💫"
 
-    if ad_plain:
-        # Reklam bloğu
-        parts.append("Sponsored")
-        parts.append("")
-        parts.append(ad_plain)
-        parts.append("")
-        parts.append("────────────")
-        parts.append("")
+    lines = [
+        header,
+        "──────────",
+        "",
+        quote_text,
+    ]
 
-    # Söz bloğu
-    parts.append(prefix + quote_text)
     if author:
-        parts.append("")
-        parts.append(f"— {author}")
+        lines.append("")
+        lines.append(f"— {author}")
 
-    return "\n".join(parts)
+    lines.append("")
+    lines.append(share_line)
+    lines.append("")
+
+    # Reklam bloğu altta
+    if ad_text:
+        lines.append(ad_header)
+        lines.append("──────────")
+        lines.append("")
+        lines.append(ad_support)
+        lines.append("")
+        lines.append(ad_text)
+
+    return "\n".join(lines)
 
 
 # --------------------------------
@@ -629,11 +637,9 @@ async def send_quote_for_category(
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
 
-    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
-
-    prefix = "Quote of the Day:\n\n" if lang == "en" else "Günün Sözü:\n\n"
-    full_text = build_quote_text(ad_plain, prefix, quote_text, author, lang)
-    keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
+    ad_text, open_url = get_adsgram(user_id, lang)
+    full_text = build_full_message_text(lang, quote_text, author, ad_text)
+    keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
 
     try:
         await query.edit_message_text(
@@ -666,17 +672,11 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
-
-    if lang == "en":
-        prefix = f"Random Quote ({SOZLER[category]['label_en']}):\n\n"
-    else:
-        prefix = f"Rastgele Söz ({SOZLER[category]['label_tr']}):\n\n"
-
-    full_text = build_quote_text(ad_plain, prefix, quote_text, author, lang)
+    ad_text, open_url = get_adsgram(user_id, lang)
+    full_text = build_full_message_text(lang, quote_text, author, ad_text)
 
     if update.message:
-        keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
+        keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
         await update.message.reply_text(
             full_text,
             reply_markup=keyboard,
@@ -703,13 +703,11 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
-
-    prefix = "Quote of the Day:\n\n" if lang == "en" else "Bugünün Sözü:\n\n"
-    full_text = build_quote_text(ad_plain, prefix, quote_text, author, lang)
+    ad_text, open_url = get_adsgram(user_id, lang)
+    full_text = build_full_message_text(lang, quote_text, author, ad_text)
 
     if update.message:
-        keyboard = build_share_keyboard(category, quote_text, author, lang, ad_buttons)
+        keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
         await update.message.reply_text(
             full_text,
             reply_markup=keyboard,
@@ -717,7 +715,7 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------
-# Günlük 10:00 job – tüm kullanıcılara bugünün sözü
+# Günlük 10:00 job – tüm kullanıcılara bugünün sözü (TR saatiyle 10)
 # --------------------------------
 async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
     conn = get_db_connection()
@@ -737,17 +735,14 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
             USER_LAST_CATEGORY[user_id] = category
             LAST_SHOWN[user_id] = (category, quote_text, author)
 
-            ad_plain, ad_buttons = get_adsgram_inline(user_id, lang)
-
-            prefix = "Quote of the Day:\n\n" if lang == "en" else "Bugünün Sözü:\n\n"
-            full_text = build_quote_text(ad_plain, prefix, quote_text, author, lang)
-
-            reply_markup = InlineKeyboardMarkup(ad_buttons) if ad_buttons else None
+            ad_text, open_url = get_adsgram(user_id, lang)
+            full_text = build_full_message_text(lang, quote_text, author, ad_text)
+            keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
 
             await context.bot.send_message(
                 chat_id=user_id,
                 text=full_text,
-                reply_markup=reply_markup,
+                reply_markup=keyboard,
             )
         except Exception as e:
             logger.warning("daily_quote hata (user %s): %s", user_id, e)
@@ -1044,14 +1039,13 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    if app.job_queue is not None:
-        app.job_queue.run_daily(
-            send_daily_quote,
-            time=datetime.time(hour=10, minute=0),
-        )
-        print("JobQueue aktif: Günlük 10:00 gönderimi ayarlandı.")
-    else:
-        print("Uyarı: JobQueue yok, günlük 10:00 gönderimi kapalı.")
+    # TR saatiyle 10:00 için timezone +03:00
+    ist_tz = datetime.timezone(datetime.timedelta(hours=3))
+    app.job_queue.run_daily(
+        send_daily_quote,
+        time=datetime.time(hour=10, minute=0, tzinfo=ist_tz),
+    )
+    print("JobQueue aktif: TR saatiyle her gün 10:00'da gönderim ayarlandı.")
 
     print("DailyQuoteBot çalışıyor...")
     app.run_polling(close_loop=False)
