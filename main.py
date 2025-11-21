@@ -249,9 +249,6 @@ def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict
 
 
 def html_to_plain(text_html: str) -> str:
-    """
-    AdsGram text_html içinden basitçe HTML tag'lerini kaldır, biraz kısalt.
-    """
     if not text_html:
         return ""
     text = text_html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
@@ -264,10 +261,6 @@ def html_to_plain(text_html: str) -> str:
 
 
 def get_adsgram(user_id: int, lang: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Reklam metni + tek OPEN butonunun URL'i.
-    Dönen: (ad_plain_text or None, open_url or None)
-    """
     data: Optional[dict] = None
 
     if lang == "tr":
@@ -309,9 +302,6 @@ def set_user_lang(user_id: int, lang: str):
 
 
 def build_category_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """
-    Kategori butonlarını 2 sütunlu grid olarak döndür.
-    """
     buttons = []
     row = []
     for key, data in SOZLER.items():
@@ -408,51 +398,82 @@ def build_share_keyboard(
     author: str,
     lang: str,
     open_url: Optional[str],
+    mode: str = "main",
 ) -> InlineKeyboardMarkup:
-    # Kısa buton metinleri
-    if lang == "en":
-        fav_txt = "⭐ Fav"
-        change_txt = "🔄 Change"
-        wa_txt = "📲 WhatsApp"
-        tg_txt = "📤 Telegram"
-        topic_txt = "⬅️ Topic"
-        lang_txt = "✖️ Language"
-    else:
-        fav_txt = "⭐ Favori"
-        change_txt = "🔄 Değiştir"
-        wa_txt = "📲 WhatsApp"
-        tg_txt = "📤 Telegram"
-        topic_txt = "⬅️ Konu"
-        lang_txt = "✖️ Dil"
-
-    full_share = build_share_text(quote_text, author, lang)
-    encoded = urllib.parse.quote_plus(full_share)
-
-    bot_link = f"https://t.me/{BOT_USERNAME}"
-    telegram_share_url = (
-        f"https://t.me/share/url?url={urllib.parse.quote_plus(bot_link)}&text={encoded}"
-    )
-    whatsapp_share_url = f"https://wa.me/?text={encoded}"
-
     buttons = []
 
-    # 1. satır: bütün bot butonları yan yana
-    buttons.append(
-        [
-            InlineKeyboardButton(fav_txt, callback_data=f"fav|{category}"),
-            InlineKeyboardButton(change_txt, callback_data=f"change_{category}"),
-            InlineKeyboardButton(wa_txt, url=whatsapp_share_url),
-            InlineKeyboardButton(tg_txt, url=telegram_share_url),
-            InlineKeyboardButton(topic_txt, callback_data="choose_topic"),
-            InlineKeyboardButton(lang_txt, callback_data="open_lang"),
-        ]
-    )
+    # Ana görünüm: sadece WhatsApp / Telegram / Menü
+    if mode == "main":
+        if lang == "en":
+            wa_txt = "WhatsApp"
+            tg_txt = "Telegram"
+            menu_txt = "Menu"
+        else:
+            wa_txt = "WhatsApp"
+            tg_txt = "Telegram"
+            menu_txt = "Menü"
 
-    # 2. satır: reklam OPEN
-    if open_url:
-        buttons.append(
-            [InlineKeyboardButton("OPEN", url=open_url)]
+        full_share = build_share_text(quote_text, author, lang)
+        encoded = urllib.parse.quote_plus(full_share)
+        bot_link = f"https://t.me/{BOT_USERNAME}"
+
+        telegram_share_url = (
+            f"https://t.me/share/url?url={urllib.parse.quote_plus(bot_link)}&text={encoded}"
         )
+        whatsapp_share_url = f"https://wa.me/?text={encoded}"
+
+        buttons.append(
+            [
+                InlineKeyboardButton(wa_txt, url=whatsapp_share_url),
+                InlineKeyboardButton(tg_txt, url=telegram_share_url),
+                InlineKeyboardButton(menu_txt, callback_data=f"menu|{category}"),
+            ]
+        )
+
+    # Menü görünümü: Favori / Değiştir / Konu / Favoriler / Ayarlar / Dil / Geri
+    else:
+        if lang == "en":
+            fav_add = "Add to Favorites"
+            change_q = "Change Quote"
+            change_topic = "Change Topic"
+            favs_txt = "Favorites"
+            settings_txt = "Settings"
+            lang_txt = "Change Language"
+            back_txt = "Back"
+        else:
+            fav_add = "Favorilere Ekle"
+            change_q = "Sözü Değiştir"
+            change_topic = "Konuyu Değiştir"
+            favs_txt = "Favoriler"
+            settings_txt = "Ayarlar"
+            lang_txt = "Dili Değiştir"
+            back_txt = "Geri"
+
+        buttons.append(
+            [
+                InlineKeyboardButton(fav_add, callback_data=f"fav|{category}"),
+                InlineKeyboardButton(change_q, callback_data=f"change_{category}"),
+            ]
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(change_topic, callback_data="choose_topic"),
+                InlineKeyboardButton(favs_txt, callback_data="open_favs"),
+            ]
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(settings_txt, callback_data="open_settings"),
+                InlineKeyboardButton(lang_txt, callback_data="open_lang"),
+            ]
+        )
+        buttons.append(
+            [InlineKeyboardButton(back_txt, callback_data=f"backmenu|{category}")]
+        )
+
+    # Reklam OPEN
+    if open_url:
+        buttons.append([InlineKeyboardButton("OPEN", url=open_url)])
 
     return InlineKeyboardMarkup(buttons)
 
@@ -527,7 +548,6 @@ def build_full_message_text(
     lines.append(share_line)
     lines.append("")
 
-    # Reklam bloğu altta
     if ad_text:
         lines.append(ad_header)
         lines.append("──────────")
@@ -537,6 +557,85 @@ def build_full_message_text(
         lines.append(ad_text)
 
     return "\n".join(lines)
+
+
+# --------------------------------
+# Favoriler ve Ayarlar için ortak yardımcılar
+# --------------------------------
+async def send_favorites_list(chat_id: int, user_id: int, lang: str, bot):
+    rows = get_favorites(user_id, limit=50)
+
+    if not rows:
+        msg = (
+            "Henüz favori sözün yok.\n\n"
+            "Beğendiğin sözlerin altındaki menüden Favorilere Ekle seçeneğini kullanabilirsin."
+            if lang == "tr"
+            else "You don’t have any favorite quotes yet.\n\nUse the menu under a quote to add favorites."
+        )
+        await bot.send_message(chat_id=chat_id, text=msg)
+        return
+
+    header = (
+        "Favori sözlerin (en fazla 50 adet gösteriliyor):\n"
+        if lang == "tr"
+        else "Your favorite quotes (showing up to 50):\n"
+    )
+    await bot.send_message(chat_id=chat_id, text=header)
+
+    for r in rows:
+        fav_id = r["id"]
+        text = r["text"]
+        author = normalize_author(r["author"])
+
+        if author:
+            body = f"{text}\n\n— {author}"
+        else:
+            body = text
+
+        if lang == "tr":
+            btn_text = "❌ Favorilerden Çıkar"
+        else:
+            btn_text = "❌ Remove from Favorites"
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        btn_text,
+                        callback_data=f"favdel|{fav_id}",
+                    )
+                ]
+            ]
+        )
+
+        await bot.send_message(chat_id=chat_id, text=body, reply_markup=keyboard)
+
+
+async def send_settings_panel(chat_id: int, user_id: int, lang: str, bot):
+    if lang == "en":
+        text = (
+            "Settings:\n\n"
+            "• Language: English\n\n"
+            "You can switch language from the button below."
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("🇹🇷 Switch to Turkish", callback_data="lang_tr"),
+            ]
+        ]
+    else:
+        text = (
+            "Ayarlar:\n\n"
+            "• Dil: Türkçe\n\n"
+            "Dili aşağıdaki butondan değiştirebilirsin."
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("🇬🇧 İngilizceye Geç", callback_data="lang_en"),
+            ]
+        ]
+
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # --------------------------------
@@ -639,7 +738,7 @@ async def send_quote_for_category(
 
     ad_text, open_url = get_adsgram(user_id, lang)
     full_text = build_full_message_text(lang, quote_text, author, ad_text)
-    keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
+    keyboard = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
 
     try:
         await query.edit_message_text(
@@ -676,7 +775,7 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_text = build_full_message_text(lang, quote_text, author, ad_text)
 
     if update.message:
-        keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
+        keyboard = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
         await update.message.reply_text(
             full_text,
             reply_markup=keyboard,
@@ -707,7 +806,7 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_text = build_full_message_text(lang, quote_text, author, ad_text)
 
     if update.message:
-        keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
+        keyboard = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
         await update.message.reply_text(
             full_text,
             reply_markup=keyboard,
@@ -737,7 +836,7 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
 
             ad_text, open_url = get_adsgram(user_id, lang)
             full_text = build_full_message_text(lang, quote_text, author, ad_text)
-            keyboard = build_share_keyboard(category, quote_text, author, lang, open_url)
+            keyboard = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
 
             await context.bot.send_message(
                 chat_id=user_id,
@@ -755,54 +854,13 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
 async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
-    rows = get_favorites(user_id, limit=50)
-
-    if not rows:
-        msg = (
-            "Henüz favori sözün yok.\n\n"
-            "Beğendiğin sözlerin altındaki ⭐ butonuna basarak favorilere ekleyebilirsin."
-            if lang == "tr"
-            else "You don’t have any favorite quotes yet.\n\nUse the ⭐ button under a quote to save it."
-        )
-        if update.message:
-            await update.message.reply_text(msg)
-        return
-
     if update.message:
-        header = (
-            "Favori sözlerin (en fazla 50 adet gösteriliyor):\n"
-            if lang == "tr"
-            else "Your favorite quotes (showing up to 50):\n"
+        await send_favorites_list(
+            chat_id=update.message.chat_id,
+            user_id=user_id,
+            lang=lang,
+            bot=context.bot,
         )
-        await update.message.reply_text(header)
-
-        for r in rows:
-            fav_id = r["id"]
-            text = r["text"]
-            author = normalize_author(r["author"])
-
-            if author:
-                body = f"{text}\n\n— {author}"
-            else:
-                body = text
-
-            if lang == "tr":
-                btn_text = "❌ Favorilerden Çıkar"
-            else:
-                btn_text = "❌ Remove from Favorites"
-
-            keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            btn_text,
-                            callback_data=f"favdel|{fav_id}",
-                        )
-                    ]
-                ]
-            )
-
-            await update.message.reply_text(body, reply_markup=keyboard)
 
 
 # --------------------------------
@@ -811,32 +869,13 @@ async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
-
-    if lang == "en":
-        text = (
-            "Settings:\n\n"
-            "• Language: English\n\n"
-            "You can switch language from the button below."
-        )
-        keyboard = [
-            [
-                InlineKeyboardButton("🇹🇷 Switch to Turkish", callback_data="lang_tr"),
-            ]
-        ]
-    else:
-        text = (
-            "Ayarlar:\n\n"
-            "• Dil: Türkçe\n\n"
-            "Dili aşağıdaki butondan değiştirebilirsin."
-        )
-        keyboard = [
-            [
-                InlineKeyboardButton("🇬🇧 İngilizceye Geç", callback_data="lang_en"),
-            ]
-        ]
-
     if update.message:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await send_settings_panel(
+            chat_id=update.message.chat_id,
+            user_id=user_id,
+            lang=lang,
+            bot=context.bot,
+        )
 
 
 # --------------------------------
@@ -961,6 +1000,32 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_quote_for_category(update, context, category)
         return
 
+    # Menü aç/kapat
+    if data.startswith("menu|"):
+        _, category = data.split("|", 1)
+        # Mevcut metni bozma, sadece keyboard değişsin
+        _, quote_text, author = LAST_SHOWN.get(user_id, (category, "", ""))
+        _, open_url = get_adsgram(user_id, lang)
+        kb = build_share_keyboard(category, quote_text, author, lang, open_url, mode="menu")
+        try:
+            await query.edit_message_reply_markup(reply_markup=kb)
+            await query.answer()
+        except BadRequest:
+            pass
+        return
+
+    if data.startswith("backmenu|"):
+        _, category = data.split("|", 1)
+        _, quote_text, author = LAST_SHOWN.get(user_id, (category, "", ""))
+        _, open_url = get_adsgram(user_id, lang)
+        kb = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
+        try:
+            await query.edit_message_reply_markup(reply_markup=kb)
+            await query.answer()
+        except BadRequest:
+            pass
+        return
+
     # Favoriye ekle
     if data.startswith("fav|"):
         _, category = data.split("|", 1)
@@ -975,6 +1040,34 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except BadRequest:
             pass
+        return
+
+    # Menüden Favoriler aç
+    if data == "open_favs":
+        try:
+            await query.answer()
+        except BadRequest:
+            pass
+        await send_favorites_list(
+            chat_id=query.message.chat_id,
+            user_id=user_id,
+            lang=lang,
+            bot=context.bot,
+        )
+        return
+
+    # Menüden Ayarlar aç
+    if data == "open_settings":
+        try:
+            await query.answer()
+        except BadRequest:
+            pass
+        await send_settings_panel(
+            chat_id=query.message.chat_id,
+            user_id=user_id,
+            lang=lang,
+            bot=context.bot,
+        )
         return
 
     # Favoriden çıkar
@@ -1039,7 +1132,6 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    # TR saatiyle 10:00 için timezone +03:00
     ist_tz = datetime.timezone(datetime.timedelta(hours=3))
     app.job_queue.run_daily(
         send_daily_quote,
