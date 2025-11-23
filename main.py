@@ -402,15 +402,15 @@ def build_share_keyboard(
 ) -> InlineKeyboardMarkup:
     buttons = []
 
-    # Ana görünüm: sadece WhatsApp / Telegram / Menü
+    # Ana görünüm: WhatsApp / Telegram / Menü
     if mode == "main":
         if lang == "en":
-            wa_txt = "WhatsApp"
-            tg_txt = "Telegram"
+            wa_txt = "Share on WhatsApp"
+            tg_txt = "Share on Telegram"
             menu_txt = "Menu"
         else:
-            wa_txt = "WhatsApp"
-            tg_txt = "Telegram"
+            wa_txt = "WhatsApp'ta Paylaş"
+            tg_txt = "Telegram'da Paylaş"
             menu_txt = "Menü"
 
         full_share = build_share_text(quote_text, author, lang)
@@ -527,17 +527,24 @@ def build_full_message_text(
         share_line = "If you liked today’s quote, support us by sharing with a friend. 💜"
         ad_header = "Sponsored"
         ad_support = "You can support us by tapping the ad. 💫"
+        open_quote = "“"
+        close_quote = "”"
     else:
         header = "Günün Sözü"
         share_line = "Günün sözünü beğendiysen bize destek için bir arkadaşınla paylaş. 💜"
         ad_header = "Sponsored"
         ad_support = "Bize destek olmak için reklama tıklayabilirsin. 💫"
+        open_quote = "“"
+        close_quote = "”"
+
+    # Söz tırnak içinde tutuluyor, daha derli toplu görünüm
+    quoted_text = f"{open_quote}{quote_text}{close_quote}"
 
     lines = [
         header,
         "──────────",
         "",
-        quote_text,
+        quoted_text,
     ]
 
     if author:
@@ -550,6 +557,7 @@ def build_full_message_text(
 
     if ad_text:
         lines.append(ad_header)
+        "──────────"
         lines.append("──────────")
         lines.append("")
         lines.append(ad_support)
