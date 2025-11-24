@@ -1,396 +1,159 @@
-SOZLER = {
+# quotes.py
+
+from typing import Dict, List, Tuple
+
+# SOZLER yapısı:
+# {
+#   "category_key": {
+#       "label_tr": "Türkçe İsim",
+#       "label_en": "English Name",
+#       "tr": [("Metin", "Yazar (veya '')"), ...],
+#       "en": [("Text EN", "Metin TR", "Author (veya '')"), ...],
+#   },
+#   ...
+# }
+
+SOZLER: Dict[str, Dict[str, object]] = {
     "motivation": {
         "label_tr": "Motivasyon",
         "label_en": "Motivation",
         "tr": [
-            ("Başarı sabır ister.", ""),
-            ("Vazgeçmeyen kazanır.", ""),
-            ("Bugün attığın küçük adımlar, yarının büyük başarılarını hazırlar.", ""),
+            ("Başladığın işi bitirene kadar pes etme.", ""),
+            ("Bugün attığın küçük adımlar, yarının büyük değişimini hazırlar.", ""),
             ("Her yeni gün, yeniden başlamak için bir fırsattır.", ""),
-            ("Düşmekten korkma, kalkmamayı alışkanlık haline getirmekten kork.", ""),
-            ("Zorluklar seni durdurmak için değil, güçlendirmek için vardır.", ""),
-            ("En karanlık an, şafaktan hemen önce gelir.", ""),
-            ("Yorulduğunda dinlen, pes etme.", ""),
-            ("Bazen en büyük cesaret, yeniden denemeye karar vermektir.", ""),
+            ("Zorlanıyorsan, güçleniyorsun demektir.", ""),
+            ("Hayallerin, konfor alanından daha değerlidir.", ""),
         ],
         "en": [
-            ("Success requires patience.", "Başarı sabır ister.", ""),
-            ("Winners never quit.", "Kazananlar asla vazgeçmez.", ""),
-            (
-                "Small steps every day lead to big changes.",
-                "Her gün atılan küçük adımlar büyük değişimlere yol açar.",
-                "",
-            ),
-            (
-                "Every new day is a chance to start again.",
-                "Her yeni gün, yeniden başlamak için bir fırsattır.",
-                "",
-            ),
-            (
-                "Don’t be afraid to fall, be afraid of never trying to stand up again.",
-                "Düşmekten korkma, bir daha ayağa kalkmamaktan kork.",
-                "",
-            ),
-            (
-                "It always seems impossible until it’s done.",
-                "Her şey yapılana kadar imkansız görünür.",
-                "Nelson Mandela",
-            ),
+            ("Keep going until you finish what you started.", "Başladığın işi bitirene kadar pes etme.", ""),
+            ("Small steps today prepare big changes tomorrow.", "Bugün attığın küçük adımlar, yarının büyük değişimini hazırlar.", ""),
+            ("Every new day is a chance to start again.", "Her yeni gün, yeniden başlamak için bir fırsattır.", ""),
+            ("If it’s challenging, it’s changing you.", "Zorlanıyorsan, güçleniyorsun demektir.", ""),
+            ("Your dreams are worth more than your comfort zone.", "Hayallerin, konfor alanından daha değerlidir.", ""),
         ],
     },
-
-    "love": {
-        "label_tr": "Aşk",
-        "label_en": "Love",
-        "tr": [
-            ("Aşk kalpten gelen bir melodidir.", ""),
-            ("Gerçek aşk anlatılmaz, hissedilir.", ""),
-            ("Aşk, iki kalbin aynı dili konuşmasıdır.", ""),
-            ("Sevgi, paylaştıkça çoğalan tek servettir.", ""),
-            ("Kalbini hızlı attıran kişiden vazgeçme.", ""),
-        ],
-        "en": [
-            ("Love is a melody from the heart.", "Aşk kalpten gelen bir melodidir.", ""),
-            ("Love is felt, not explained.", "Aşk hissedilir, anlatılmaz.", ""),
-            (
-                "Love is when two hearts speak the same language.",
-                "Aşk, iki kalbin aynı dili konuşmasıdır.",
-                "",
-            ),
-            (
-                "The best thing to hold onto in life is each other.",
-                "Hayatta tutunulacak en güzel şey birbirinizsiniz.",
-                "Audrey Hepburn",
-            ),
-        ],
-    },
-
     "life": {
         "label_tr": "Yaşam",
         "label_en": "Life",
         "tr": [
-            ("Hayat bir yolculuktur, varış noktası değil.", ""),
-            ("Zaman en değerli hazinemizdir.", ""),
-            ("Hayat cesurları ödüllendirir.", ""),
+            ("Hayat, cevaplardan çok sorularla anlam kazanır.", ""),
+            ("Zaman, geri alamadığın tek sermayendir.", ""),
             ("Bugün, geri kalan hayatının ilk günü.", ""),
-            ("Hayat, nefes aldığın anlarla değil, nefesini kesen anlarla ölçülür.", ""),
+            ("Hayat, planladıkların değil; başına gelenlere verdiğin tepkidir.", ""),
         ],
         "en": [
-            (
-                "Life is a journey, not a destination.",
-                "Hayat bir yolculuktur, varış noktası değil.",
-                "",
-            ),
-            (
-                "Time is our most valuable treasure.",
-                "Zaman en değerli hazinemizdir.",
-                "",
-            ),
-            ("Life rewards the brave.", "Hayat cesurları ödüllendirir.", ""),
-            (
-                "Today is the first day of the rest of your life.",
-                "Bugün, geri kalan hayatının ilk günü.",
-                "",
-            ),
-            (
-                "In the middle of difficulty lies opportunity.",
-                "Zorluğun ortasında fırsat yatar.",
-                "Albert Einstein",
-            ),
+            ("Life finds meaning more in questions than in answers.", "Hayat, cevaplardan çok sorularla anlam kazanır.", ""),
+            ("Time is the only capital you can never get back.", "Zaman, geri alamadığın tek sermayendir.", ""),
+            ("Today is the first day of the rest of your life.", "Bugün, geri kalan hayatının ilk günü.", ""),
+            ("Life is not what happens in your plans, but how you respond when plans change.", "Hayat, planladıkların değil; başına gelenlere verdiğin tepkidir.", ""),
         ],
     },
-
     "success": {
         "label_tr": "Başarı",
         "label_en": "Success",
         "tr": [
-            ("Başarı, hazırlanma ile fırsatın buluştuğu yerdir.", ""),
-            ("Bugün yaptıkların, yarın olmak istediğin kişi içindir.", ""),
-            ("Başarının sırrı, bir kez daha denemektir.", ""),
-            ("Başarı, konfor alanının dışındadır.", ""),
-            ("En büyük başarı, pes etmediğin anda gelir.", ""),
-            ("Başarı, her gün tekrar edilen küçük çabaların toplamıdır.", ""),
+            ("Başarı, her gün tekrarlanan küçük çabaların toplamıdır.", ""),
+            ("Hazırlık yoksa şans da işe yaramaz.", ""),
+            ("En büyük başarı, vazgeçmediğin o son denemede saklıdır.", ""),
         ],
         "en": [
-            (
-                "Success is where preparation and opportunity meet.",
-                "Başarı, hazırlanma ile fırsatın buluştuğu yerdir.",
-                "",
-            ),
-            (
-                "What you do today shapes who you become tomorrow.",
-                "Bugün yaptıkların, yarın olmak istediğin kişiyi şekillendirir.",
-                "",
-            ),
-            (
-                "The secret of success is to try one more time.",
-                "Başarının sırrı, bir kez daha denemektir.",
-                "",
-            ),
-            (
-                "Success lives outside your comfort zone.",
-                "Başarı, konfor alanının dışındadır.",
-                "",
-            ),
-            (
-                "Your greatest success comes right after you decide not to give up.",
-                "En büyük başarın, pes etmemeye karar verdiğin anda gelir.",
-                "",
-            ),
-            (
-                "Success is the sum of small efforts repeated day in and day out.",
-                "Başarı, her gün tekrarlanan küçük çabaların toplamıdır.",
-                "",
-            ),
+            ("Success is the sum of small efforts repeated every day.", "Başarı, her gün tekrarlanan küçük çabaların toplamıdır.", ""),
+            ("Without preparation, even luck can’t help you.", "Hazırlık yoksa şans da işe yaramaz.", ""),
+            ("Your greatest success is hidden in the attempt where you decided not to give up.", "En büyük başarı, vazgeçmediğin o son denemede saklıdır.", ""),
         ],
     },
-
     "wisdom": {
         "label_tr": "Bilgelik",
         "label_en": "Wisdom",
         "tr": [
-            ("Kendini bilen, dünyayı bilir.", ""),
-            ("En büyük bilgelik, ne bilmediğini bilmektir.", "Sokrates"),
-            ("Sessizlik de bir cevaptır.", ""),
-            ("Az konuş, çok dinle; az yargıla, çok anla.", ""),
-            ("Doğru sorular, doğru cevaplardan daha değerlidir.", ""),
+            ("Kendini tanımak, değişimin ilk adımıdır.", ""),
+            ("Ne düşündüğün değil, neyi fark ettiğin hayatını değiştirir.", ""),
+            ("Sessizlik bazen en güçlü cevaptır.", ""),
         ],
         "en": [
-            (
-                "Knowing yourself, you know the world.",
-                "Kendini bilen, dünyayı bilir.",
-                "",
-            ),
-            (
-                "The only true wisdom is in knowing you know nothing.",
-                "Gerçek bilgelik, hiçbir şey bilmediğini bilmektir.",
-                "Socrates",
-            ),
-            ("Silence is also an answer.", "Sessizlik de bir cevaptır.", ""),
-            (
-                "Speak less, listen more; judge less, understand more.",
-                "Az konuş, çok dinle; az yargıla, çok anla.",
-                "",
-            ),
-            (
-                "Knowing yourself is the beginning of all wisdom.",
-                "Kendini bilmek, tüm bilgeliğin başlangıcıdır.",
-                "Aristotle",
-            ),
+            ("Knowing yourself is the first step to change.", "Kendini tanımak, değişimin ilk adımıdır.", ""),
+            ("It’s not what you think, but what you realize that changes your life.", "Ne düşündüğün değil, neyi fark ettiğin hayatını değiştirir.", ""),
+            ("Sometimes silence is the strongest answer.", "Sessizlik bazen en güçlü cevaptır.", ""),
         ],
     },
-
     "friendship": {
         "label_tr": "Dostluk",
         "label_en": "Friendship",
         "tr": [
-            ("Gerçek dostluk, mesafelerle zayıflamaz.", ""),
-            ("Zor zamanda yanında olan, gerçek dostundur.", ""),
-            ("Dost, aynadaki yansıman değil; seni sen yapan kişidir.", ""),
-            ("Gerçek dost, kalabalıkta değil; yalnız kaldığında yanındadır.", ""),
-            ("Birlikte gülebilmek güzel, ama birlikte susabilmek daha değerlidir.", ""),
+            ("Zor günlerinde yanında kalanlar, gerçek dostlarındır.", ""),
+            ("Bir dost, aynaya değil kalbine bakandır.", ""),
         ],
         "en": [
-            (
-                "True friendship is not weakened by distance.",
-                "Gerçek dostluk, mesafelerle zayıflamaz.",
-                "",
-            ),
-            (
-                "A real friend stays when others leave.",
-                "Gerçek dost, herkes giderken kalan kişidir.",
-                "",
-            ),
-            (
-                "A friend is not your reflection, but the one who helps you see yourself.",
-                "Dost, aynadaki yansıman değil; seni sen yapan kişidir.",
-                "",
-            ),
-            (
-                "A true friend is beside you not in crowds, but in your loneliness.",
-                "Gerçek dost, kalabalıkta değil; yalnız kaldığında yanındadır.",
-                "",
-            ),
-            (
-                "Friendship doubles joy and halves sorrow.",
-                "Dostluk, sevinci ikiye, üzüntüyü yarıya böler.",
-                "",
-            ),
+            ("Those who stay in your hardest days are your true friends.", "Zor günlerinde yanında kalanlar, gerçek dostlarındır.", ""),
+            ("A real friend looks not at your mirror, but at your heart.", "Bir dost, aynaya değil kalbine bakandır.", ""),
         ],
     },
-
     "happiness": {
         "label_tr": "Mutluluk",
         "label_en": "Happiness",
         "tr": [
-            ("Mutluluk, şükretmeyi bilen kalptedir.", ""),
-            ("Küçük şeylerden mutlu olabilen, gerçek zengindir.", ""),
-            ("Mutluluk bir varış değil, yolculuktur.", ""),
-            ("Mutlu olmak için büyük sebeplere değil, sakin bir kalbe ihtiyacın var.", ""),
-            ("Mutluluk bazen sadece derin bir nefes alabilmektir.", ""),
+            ("Mutluluk, çoğu zaman yavaşlayınca fark ettiğin şeydir.", ""),
+            ("Şükrettiğin şeyler, hayatının en parlak tarafları olur.", ""),
         ],
         "en": [
-            (
-                "Happiness lives in a grateful heart.",
-                "Mutluluk, şükretmeyi bilen kalptedir.",
-                "",
-            ),
-            (
-                "Those who enjoy small things are truly rich.",
-                "Küçük şeylerden mutlu olabilen, gerçek zengindir.",
-                "",
-            ),
-            (
-                "Happiness is not a destination, it's a journey.",
-                "Mutluluk bir varış değil, yolculuktur.",
-                "",
-            ),
-            (
-                "You don’t need big reasons to be happy, just a peaceful heart.",
-                "Mutlu olmak için büyük sebeplere değil, huzurlu bir kalbe ihtiyacın var.",
-                "",
-            ),
-            (
-                "Happiness is not having all you want, but enjoying all you have.",
-                "Mutluluk, istediğin her şeye sahip olmak değil; sahip olduklarının kıymetini bilmektir.",
-                "",
-            ),
+            ("Happiness is often what you notice only when you slow down.", "Mutluluk, çoğu zaman yavaşlayınca fark ettiğin şeydir.", ""),
+            ("What you are grateful for becomes the brightest part of your life.", "Şükrettiğin şeyler, hayatının en parlak tarafları olur.", ""),
         ],
     },
-
     "self": {
         "label_tr": "Öz Farkındalık",
         "label_en": "Self-awareness",
         "tr": [
-            ("Kendini tanımak, değişimin ilk adımıdır.", ""),
-            ("Olduğun kişiyi kabul etmeden, olmak istediğin kişiye dönüşemezsin.", ""),
-            ("Kendine dürüst olmak, özgürlüğün başlangıcıdır.", ""),
+            ("Kendine karşı dürüst olmadığın sürece özgür değilsin.", ""),
             ("Kendini sevmek, başkalarından beklediğin sevginin provasıdır.", ""),
         ],
         "en": [
-            (
-                "Knowing yourself is the first step to change.",
-                "Kendini tanımak, değişimin ilk adımıdır.",
-                "",
-            ),
-            (
-                "You cannot become who you want to be without accepting who you are now.",
-                "Şu anki halini kabul etmeden, olmak istediğin kişiye dönüşemezsin.",
-                "",
-            ),
-            (
-                "Being honest with yourself is the beginning of freedom.",
-                "Kendine dürüst olmak, özgürlüğün başlangıcıdır.",
-                "",
-            ),
-            (
-                "Loving yourself is the beginning of a lifelong romance.",
-                "Kendini sevmek, ömür boyu sürecek bir aşkın başlangıcıdır.",
-                "Oscar Wilde",
-            ),
+            ("As long as you are not honest with yourself, you are not free.", "Kendine karşı dürüst olmadığın sürece özgür değilsin.", ""),
+            ("Loving yourself is the rehearsal for the love you expect from others.", "Kendini sevmek, başkalarından beklediğin sevginin provasıdır.", ""),
         ],
     },
-
     "mindset": {
         "label_tr": "Zihniyet",
         "label_en": "Mindset",
         "tr": [
-            ("Düşüncelerin, gördüğün dünyayı şekillendirir.", ""),
-            ("Zihnini değiştirdiğinde, hayatın da değişir.", ""),
-            ("Seni sınırlayan şey çoğu zaman imkanların değil, bakış açındır.", ""),
-            ("Olumsuz düşünceler, geleceğini değil sadece modunu bozmaya değerdir.", ""),
+            ("Bakış açını değiştirdiğinde hikâyen de değişir.", ""),
+            ("Seni sınırlayan, çoğu zaman imkanların değil düşüncelerindir.", ""),
         ],
         "en": [
-            (
-                "Your thoughts shape the world you see.",
-                "Düşüncelerin, gördüğün dünyayı şekillendirir.",
-                "",
-            ),
-            (
-                "When you change your mindset, you change your life.",
-                "Zihnini değiştirdiğinde, hayatın da değişir.",
-                "",
-            ),
-            (
-                "What limits you is not your possibilities, but your perspective.",
-                "Seni sınırlayan çoğu zaman imkanların değil, bakış açındır.",
-                "",
-            ),
-            (
-                "Whether you think you can, or you think you can’t – you’re right.",
-                "Yapabileceğini de düşünsen, yapamayacağını da düşünsen haklısın.",
-                "Henry Ford",
-            ),
+            ("When you change your perspective, your story changes.", "Bakış açını değiştirdiğinde hikâyen de değişir.", ""),
+            ("What limits you is usually not your possibilities, but your thoughts.", "Seni sınırlayan, çoğu zaman imkanların değil düşüncelerindir.", ""),
         ],
     },
-
     "animals": {
         "label_tr": "Hayvanlar",
         "label_en": "Animals",
         "tr": [
-            ("Bir milletin büyüklüğü, hayvanlara olan yaklaşımıyla ölçülür.", "Mahatma Gandhi"),
-            ("Hayvanlar konuşamaz ama kalpleriyle anlatırlar.", ""),
-            ("Bir hayvanın gözlerine bak, koşulsuz sevgiyi görürsün.", ""),
+            ("Bir hayvanın gözlerine baktığında, koşulsuz sevgiyi görebilirsin.", ""),
+            ("Hayvanlar konuşmaz ama kalbinle dinlersen çok şey anlatırlar.", ""),
         ],
         "en": [
-            (
-                "The greatness of a nation can be judged by the way its animals are treated.",
-                "Bir milletin büyüklüğü, hayvanlara olan yaklaşımıyla ölçülür.",
-                "Mahatma Gandhi",
-            ),
-            (
-                "Animals cannot speak, but they speak to us with their hearts.",
-                "Hayvanlar konuşamaz ama kalpleriyle anlatırlar.",
-                "",
-            ),
-            (
-                "Until one has loved an animal, a part of one's soul remains unawakened.",
-                "Bir hayvanı sevmedikçe, ruhunun bir parçası uyanmaz.",
-                "Anatole France",
-            ),
+            ("When you look into an animal’s eyes, you can see unconditional love.", "Bir hayvanın gözlerine baktığında, koşulsuz sevgiyi görebilirsin.", ""),
+            ("Animals can’t speak, but if you listen with your heart, they tell you a lot.", "Hayvanlar konuşmaz ama kalbinle dinlersen çok şey anlatırlar.", ""),
         ],
     },
-
     "sports": {
         "label_tr": "Spor",
         "label_en": "Sports",
         "tr": [
-            ("Seni sınırlayan bedenin değil, zihnindir.", ""),
-            ("Her antrenman, dünkü halinden daha iyi olmak içindir.", ""),
-            ("Pes etmek, acıyı bitirir ama gururu da bitirir.", ""),
-            ("Disiplin, motivasyonun geride bıraktığı yeri doldurur.", ""),
+            ("Vücudun değil, zihnin yorulduğunda pes edersin.", ""),
+            ("Her antrenman, dünkü halinden daha güçlü bir seni inşa eder.", ""),
         ],
         "en": [
-            (
-                "You are limited not by your body, but by your mind.",
-                "Seni sınırlayan bedenin değil, zihnindir.",
-                "",
-            ),
-            (
-                "Every training is to become better than you were yesterday.",
-                "Her antrenman, dünkü halinden daha iyi olmak içindir.",
-                "",
-            ),
-            (
-                "Pain is temporary, pride is forever.",
-                "Acı geçicidir, gurur kalıcıdır.",
-                "",
-            ),
-            (
-                "Discipline is choosing between what you want now and what you want most.",
-                "Disiplin, şu an istediğinle en çok istediğin şey arasında seçim yapmaktır.",
-                "",
-            ),
+            ("You don’t quit when your body is tired, you quit when your mind is.", "Vücudun değil, zihnin yorulduğunda pes edersin.", ""),
+            ("Every training builds a stronger version of you than yesterday.", "Her antrenman, dünkü halinden daha güçlü bir seni inşa eder.", ""),
         ],
     },
 }
 
 
 def normalize_author(author: str) -> str:
-    """
-    Yazar adını temizler. Şu an 'atfedilir' vb. ekler zaten kullanılmıyor ama
-    yapı ileride ihtiyaç olursa diye duruyor.
-    """
+    """Yazar bilgisini sadeleştir. Boşsa '' döndür."""
     if not author:
         return ""
-    return author.strip()
+    a = author.strip()
+    return a
