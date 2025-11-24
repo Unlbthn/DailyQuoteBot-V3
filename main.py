@@ -4,6 +4,7 @@ import logging
 import sqlite3
 import urllib.parse
 import re
+import time
 from typing import Optional, Tuple, Dict
 
 import requests
@@ -47,6 +48,11 @@ logger = logging.getLogger(__name__)
 USER_LANG: Dict[int, str] = {}          # user_id -> "tr" / "en"
 USER_LAST_CATEGORY: Dict[int, str] = {}
 LAST_SHOWN: Dict[int, Tuple[str, str, str]] = {}   # user_id -> (category, quote, author)
+
+# Reklam frekans kontrolü
+LAST_AD_TIME: Dict[int, float] = {}
+USER_ACTION_COUNTER: Dict[int, int] = {}
+AD_INTERVAL_SECONDS = 60  # 60 sn içinde en fazla 3 reklamlı aksiyon
 
 
 # --------------------------------
@@ -151,7 +157,6 @@ def upsert_user(user_id: int, lang: Optional[str] = None):
 
 
 def log_event(user_id: int, event_type: str, meta: str = ""):
-    """Basit event log. Örn: 'cmd_random', 'daily_quote_sent', 'open_menu' vs."""
     now = datetime.datetime.utcnow().isoformat()
     conn = get_db_connection()
     cur = conn.cursor()
@@ -241,7 +246,7 @@ def add_suggestion(
 
 
 # --------------------------------
-# AdsGram – metni temizleme + tek OPEN butonu
+# AdsGram – metni temizleme
 # --------------------------------
 def fetch_adsgram_data(user_id: int, lang_param: Optional[str]) -> Optional[dict]:
     try:
@@ -286,7 +291,6 @@ def html_to_plain(text_html: str) -> str:
     text = text_html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     text = re.sub(r"<.*?>", "", text)
     text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
-    # Reklam metnini biraz daha uzun gösterelim ki mesaj tam anlaşılsın
     max_len = 600
     if len(text) > max_len:
         text = text[: max_len - 3].rstrip() + "..."
@@ -297,9 +301,10 @@ def get_adsgram(user_id: int, lang: str) -> Tuple[Optional[str], Optional[str]]:
     data: Optional[dict] = None
 
     if lang == "tr":
-        data = fetch_adsgram_data(user_id, "tr")
+        # Önce EN dene, sonra TR (daha çok reklam havuzu için)
+        data = fetch_adsgram_data(user_id, "en")
         if data is None:
-            data = fetch_adsgram_data(user_id, "en")
+            data = fetch_adsgram_data(user_id, "tr")
     elif lang == "en":
         data = fetch_adsgram_data(user_id, "en")
     else:
@@ -316,6 +321,26 @@ def get_adsgram(user_id: int, lang: str) -> Tuple[Optional[str], Optional[str]]:
         return None, None
 
     return (ad_plain or None), (click_url or None)
+
+
+def get_ad_for_user(user_id: int, lang: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Reklam gösterim frekansını kontrol eder:
+    - 60 saniyelik pencerede 3'ten fazla aksiyonda reklam METNİ göstermez.
+    - Buna rağmen gerekirse hiç reklam göstermeyebilir (AdsGram tarafı).
+    """
+    now = time.time()
+    last_time = LAST_AD_TIME.get(user_id)
+    if last_time is None or (now - last_time) > AD_INTERVAL_SECONDS:
+        USER_ACTION_COUNTER[user_id] = 0
+
+    USER_ACTION_COUNTER[user_id] = USER_ACTION_COUNTER.get(user_id, 0) + 1
+    LAST_AD_TIME[user_id] = now
+
+    if USER_ACTION_COUNTER[user_id] > 3:
+        return None, None
+
+    return get_adsgram(user_id, lang)
 
 
 # --------------------------------
@@ -437,7 +462,6 @@ def build_share_keyboard(
 ) -> InlineKeyboardMarkup:
     buttons = []
 
-    # Ana görünüm: WhatsApp / Telegram / Menü
     if mode == "main":
         if lang == "en":
             wa_txt = "Share on WhatsApp"
@@ -464,8 +488,6 @@ def build_share_keyboard(
                 InlineKeyboardButton(menu_txt, callback_data=f"menu|{category}"),
             ]
         )
-
-    # Menü görünümü: Favori / Değiştir / Konu / Favoriler / Ayarlar / Dil / Geri
     else:
         if lang == "en":
             fav_add = "Add to Favorites"
@@ -506,9 +528,9 @@ def build_share_keyboard(
             [InlineKeyboardButton(back_txt, callback_data=f"backmenu|{category}")]
         )
 
-    # Reklam OPEN
     if open_url:
-        buttons.append([InlineKeyboardButton("OPEN", url=open_url)])
+        btn_label = "Botu Aç" if lang == "tr" else "OPEN"
+        buttons.append([InlineKeyboardButton(btn_label, url=open_url)])
 
     return InlineKeyboardMarkup(buttons)
 
@@ -563,9 +585,6 @@ def build_full_message_text(
             "If you liked today’s quote, you can support us by sharing it with a friend. 💜"
         )
         ad_header = "Sponsored"
-        ad_support = (
-            "You can help keep this bot free by tapping the ad. Your support matters a lot. 💫"
-        )
         open_quote = "“"
         close_quote = "”"
     else:
@@ -573,11 +592,7 @@ def build_full_message_text(
         share_line = (
             "Günün sözünü beğendiysen bize destek olmak için bir arkadaşınla paylaş. 💜"
         )
-        ad_header = "Sponsored"
-        ad_support = (
-            "Bu botu ücretsiz tutmamıza yardımcı olmak için reklama tıklayabilirsin. "
-            "Desteğin bizim için çok değerli. 💫"
-        )
+        ad_header = "Reklam"
         open_quote = "“"
         close_quote = "”"
 
@@ -601,8 +616,6 @@ def build_full_message_text(
     if ad_text:
         lines.append(ad_header)
         lines.append("──────────")
-        lines.append("")
-        lines.append(ad_support)
         lines.append("")
         lines.append(ad_text)
 
@@ -809,7 +822,7 @@ async def send_quote_for_category(
     LAST_SHOWN[user_id] = (category, quote_text, author)
     log_event(user_id, "show_quote_category", category)
 
-    ad_text, open_url = get_adsgram(user_id, lang)
+    ad_text, open_url = get_ad_for_user(user_id, lang)
     full_text = build_full_message_text(lang, quote_text, author, ad_text)
     keyboard = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
 
@@ -845,7 +858,7 @@ async def random_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_text, open_url = get_adsgram(user_id, lang)
+    ad_text, open_url = get_ad_for_user(user_id, lang)
     full_text = build_full_message_text(lang, quote_text, author, ad_text)
 
     if update.message:
@@ -877,7 +890,7 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     USER_LAST_CATEGORY[user_id] = category
     LAST_SHOWN[user_id] = (category, quote_text, author)
-    ad_text, open_url = get_adsgram(user_id, lang)
+    ad_text, open_url = get_ad_for_user(user_id, lang)
     full_text = build_full_message_text(lang, quote_text, author, ad_text)
 
     if update.message:
@@ -889,7 +902,7 @@ async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------
-# Günlük 10:00 job – tüm kullanıcılara bugünün sözü (TR saatiyle 10)
+# Günlük 10:00 job – tüm kullanıcılara bugünün sözü
 # --------------------------------
 async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
     conn = get_db_connection()
@@ -910,7 +923,7 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
             LAST_SHOWN[user_id] = (category, quote_text, author)
             log_event(user_id, "daily_quote_sent", category)
 
-            ad_text, open_url = get_adsgram(user_id, lang)
+            ad_text, open_url = get_ad_for_user(user_id, lang)
             full_text = build_full_message_text(lang, quote_text, author, ad_text)
             keyboard = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
 
@@ -925,7 +938,7 @@ async def send_daily_quote(context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------
-# /favorites – favoriler + silme
+# /favorites – favoriler
 # --------------------------------
 async def favorites_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1001,7 +1014,7 @@ async def suggest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------
-# /share – gruplarda paylaşmak için hazır metin
+# /share – botu tanıtma metni
 # --------------------------------
 async def share_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1082,7 +1095,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dil_sec(update, context, "en")
         return
 
-    # Dil değiştir butonu (ayrı mesajla menü aç)
+    # Dil değiştir butonu
     if data == "open_lang":
         try:
             await query.answer()
@@ -1119,8 +1132,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("menu|"):
         _, category = data.split("|", 1)
         _, quote_text, author = LAST_SHOWN.get(user_id, (category, "", ""))
-        _, open_url = get_adsgram(user_id, lang)
-        kb = build_share_keyboard(category, quote_text, author, lang, open_url, mode="menu")
+        kb = build_share_keyboard(category, quote_text, author, lang, None, mode="menu")
         try:
             await query.edit_message_reply_markup(reply_markup=kb)
             await query.answer()
@@ -1132,8 +1144,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("backmenu|"):
         _, category = data.split("|", 1)
         _, quote_text, author = LAST_SHOWN.get(user_id, (category, "", ""))
-        _, open_url = get_adsgram(user_id, lang)
-        kb = build_share_keyboard(category, quote_text, author, lang, open_url, mode="main")
+        kb = build_share_keyboard(category, quote_text, author, lang, None, mode="main")
         try:
             await query.edit_message_reply_markup(reply_markup=kb)
             await query.answer()
