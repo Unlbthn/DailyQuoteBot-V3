@@ -1,1 +1,0 @@
-# DailyQuoteBot-V3
