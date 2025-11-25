@@ -59,8 +59,6 @@ def get_random_quote(topic: str, lang: str) -> str:
 def start_app(payload: StartRequest):
     lang = detect_lang(payload.language_code)
 
-    # referral paramı backend tarafında normalde bot üzerinden gelir.
-    # burada sadece state set ediyoruz.
     state = USER_STATE.get(payload.user_id, {})
     if "lang" not in state:
         state["lang"] = lang
