@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>DailyQuoteBot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Premium fontlar -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="app-header">
+      <div class="logo-wrap">
+        <div class="logo-mark">❝</div>
+        <div class="logo-text">
+          <div id="app-title" class="logo-title">DailyQuoteBot</div>
+          <div class="logo-tagline">Premium daily motivation</div>
+        </div>
+      </div>
+      <button class="menu-button" id="menu-button">⋮</button>
+    </header>
+
+    <div class="tag-row">
+      <span id="topic-motivation" class="topic-pill active">Motivasyon</span>
+      <span id="topic-love" class="topic-pill">Aşk</span>
+      <span id="topic-sports" class="topic-pill">Spor</span>
+    </div>
+
+    <main>
+      <section class="quote-section">
+        <div class="quote-card">
+          <div class="quote-mark">“</div>
+          <div id="quote-text" class="quote-text">Yükleniyor...</div>
+        </div>
+      </section>
+
+      <section class="main-buttons">
+        <button id="btn-new-quote" class="btn btn-primary-main">
+          Yeni söz aç
+        </button>
+        <button id="btn-reward" class="btn btn-secondary">
+          🎁 Ek söz aç (Reklam izle)
+        </button>
+      </section>
+
+      <section class="share-buttons">
+        <button id="btn-share-whatsapp" class="btn btn-ghost">
+          WhatsApp'ta paylaş
+        </button>
+        <button id="btn-share-telegram" class="btn btn-ghost">
+          Telegram'da paylaş
+        </button>
+      </section>
+
+      <section class="bottom-section">
+        <pre id="tasks-info" class="tasks-text">
+Görevler yükleniyor...
+        </pre>
+      </section>
+    </main>
+
+    <div class="dropdown-menu" id="dropdown-menu">
+      <div class="dropdown-item" data-action="change-topic">
+        Konu değiştir
+      </div>
+      <div class="dropdown-item" data-action="add-favorite">
+        Favorilere ekle
+      </div>
+      <div class="dropdown-item" data-action="show-favorites">
+        Favoriler
+      </div>
+      <div class="dropdown-item" data-action="start-test">
+        Bugünün mini testi
+      </div>
+      <div class="dropdown-item" data-action="change-language">
+        Dil değiştir (TR/EN)
+      </div>
+    </div>
+  </div>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
