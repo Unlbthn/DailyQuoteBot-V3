@@ -1,5 +1,3 @@
-/* === GLOBAL === */
-
 *,
 *::before,
 *::after {
@@ -17,7 +15,6 @@ body {
   color: #e5e5e5;
 }
 
-/* Uygulama konteyneri */
 .app {
   min-height: 100vh;
   padding: 16px;
@@ -25,18 +22,7 @@ body {
   color: #e5e5e5;
 }
 
-/* === RENK PALETİ (referans) === */
-/*
-Gold Primary: #D4AF37
-Gold Light:   #F2D16B
-Background:   #000000
-Card:         #121212
-Border:       #2a2a2a
-Text main:    #E5E5E5
-Text muted:   #969696
-*/
-
-/* === HEADER / LOGO === */
+/* HEADER / LOGO */
 
 .app-header {
   display: flex;
@@ -82,7 +68,6 @@ Text muted:   #969696
   color: #969696;
 }
 
-/* Sağ üst menü butonu */
 .menu-button {
   background: transparent;
   border: none;
@@ -99,7 +84,7 @@ Text muted:   #969696
   transform: translateY(-1px);
 }
 
-/* === TOPIC PILL’LER === */
+/* TOPIC PILL’LER */
 
 .tag-row {
   margin-top: 4px;
@@ -128,7 +113,7 @@ Text muted:   #969696
   border-color: #D4AF37;
 }
 
-/* === QUOTE KARTI === */
+/* QUOTE KARTI */
 
 .quote-section {
   margin-top: 16px;
@@ -170,7 +155,7 @@ Text muted:   #969696
   color: #E5E5E5;
 }
 
-/* === BUTONLAR === */
+/* BUTONLAR */
 
 .main-buttons {
   margin-top: 18px;
@@ -198,7 +183,6 @@ Text muted:   #969696
     transform 0.08s ease;
 }
 
-/* Ana altın buton */
 .btn-primary-main {
   background: linear-gradient(180deg, #F2D16B 0%, #D4AF37 100%);
   color: #000000;
@@ -210,7 +194,6 @@ Text muted:   #969696
   transform: translateY(-1px);
 }
 
-/* Sekonder buton (reklam) */
 .btn-secondary {
   background: #050505;
   color: #F2D16B;
@@ -221,7 +204,6 @@ Text muted:   #969696
   background: #0f0f0f;
 }
 
-/* Ghost butonlar (paylaşım) */
 .share-buttons {
   margin-top: 20px;
   display: flex;
@@ -241,7 +223,7 @@ Text muted:   #969696
   color: #F2D16B;
 }
 
-/* === GÖREV ÖZETİ === */
+/* GÖREV ÖZETİ */
 
 .bottom-section {
   margin-top: 22px;
@@ -259,7 +241,7 @@ Text muted:   #969696
   font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-/* === DROPDOWN MENÜ === */
+/* DROPDOWN MENÜ */
 
 .dropdown-menu {
   position: absolute;
@@ -293,7 +275,7 @@ Text muted:   #969696
   background: #101010;
 }
 
-/* === RESPONSIVE === */
+/* RESPONSIVE */
 
 @media (min-width: 450px) {
   .app {

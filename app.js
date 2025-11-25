@@ -1,4 +1,4 @@
-const BACKEND_URL = "http://localhost:8000"; // kendi domainine göre değiştir
+const BACKEND_URL = "https://your-backend-url.com"; // burada kendi URL'ini kullan
 
 const tg = window.Telegram?.WebApp;
 let tgUserId = null;
@@ -10,16 +10,13 @@ if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
   tgUserId = tg.initDataUnsafe.user.id;
   tgLangCode = tg.initDataUnsafe.user.language_code;
 } else {
-  // test için
   tgUserId = 123456;
   tgLangCode = "tr";
 }
 
-// AdsGram controller'ları
 let interstitialController = null;
 let rewardController = null;
 
-// --- Localization (sadece frontend label’ları için basit map) ---
 const texts = {
   tr: {
     appTitle: "Günün Sözü",
@@ -49,13 +46,12 @@ const texts = {
 
 function applyTexts() {
   const t = texts[appLang];
-  document.getElementById("app-title").innerText = t.appTitle;
+  document.getElementById("app-title").innerText = "DailyQuoteBot"; // marka adı sabit
   document.getElementById("btn-new-quote").innerText = t.newQuote;
   document.getElementById("btn-reward").innerText = t.rewardBtn;
   document.getElementById("btn-share-whatsapp").innerText = t.shareWhatsApp;
   document.getElementById("btn-share-telegram").innerText = t.shareTelegram;
   document.getElementById("tasks-info").innerText = t.tasksLoading;
-
   document.getElementById("topic-motivation").innerText = t.topicMotivation;
   document.getElementById("topic-love").innerText = t.topicLove;
   document.getElementById("topic-sports").innerText = t.topicSports;
@@ -67,7 +63,6 @@ function detectLangFromTelegram() {
   return "en";
 }
 
-// --- AdsGram init ---
 function initInterstitial() {
   interstitialController = window.Adsgram.init({
     blockId: "int-XXXXXX" // kendi interstitial blockId'in
@@ -93,7 +88,6 @@ async function showRewardedAd() {
   if (!rewardController) return;
   try {
     await rewardController.show();
-    // Reklam tamamlandı → backend'den ödül iste
     const res = await fetch(`${BACKEND_URL}/api/reward-quote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -104,14 +98,12 @@ async function showRewardedAd() {
       document.getElementById("quote-text").innerText = data.quote;
     }
     alert(data.message || "Bonus!");
-    // Rewarded izlenince görev güncellemesi backend'de zaten yapılıyor
     await loadTasks();
   } catch (err) {
     console.warn("Rewarded cancelled or error:", err);
   }
 }
 
-// --- API Calls ---
 async function startApp() {
   const res = await fetch(`${BACKEND_URL}/api/start`, {
     method: "POST",
@@ -207,7 +199,6 @@ async function loadTasks() {
   document.getElementById("tasks-info").innerText = lines.join("\n");
 }
 
-// --- Test flow (özet) ---
 async function startTest() {
   const res = await fetch(`${BACKEND_URL}/api/test/start`, {
     method: "POST",
@@ -215,14 +206,13 @@ async function startTest() {
     body: JSON.stringify({ user_id: tgUserId })
   });
   const data = await res.json();
-  // Basit: sadece 2 soruyu konsola yazıyoruz.
   console.log("Test questions:", data.questions);
+
   alert(appLang === "tr"
-    ? "Mini test örnek: Konsole bak (gerçekte burada ayrı ekran açarsın)."
+    ? "Mini test örnek: Konsola bak (gerçekte burada ayrı ekran açarsın)."
     : "Mini test example: Check console (you would create a separate screen)."
   );
 
-  // Örnek cevap: hep orta seçeneği işaretle
   const answers = [1, 1];
   const res2 = await fetch(`${BACKEND_URL}/api/test/submit`, {
     method: "POST",
@@ -236,7 +226,6 @@ async function startTest() {
   alert(result.message);
 }
 
-// --- Sharing ---
 function shareWhatsApp() {
   const quote = document.getElementById("quote-text").innerText;
   const url = `https://wa.me/?text=${encodeURIComponent(quote)}`;
@@ -260,7 +249,6 @@ async function trackShare() {
   await loadTasks();
 }
 
-// --- Dropdown menu ---
 function toggleMenu() {
   const menu = document.getElementById("dropdown-menu");
   menu.classList.toggle("show");
@@ -269,8 +257,7 @@ function toggleMenu() {
 function highlightCurrentTopic() {
   const ids = ["topic-motivation", "topic-love", "topic-sports"];
   ids.forEach(id => {
-    const el = document.getElementById(id);
-    el.classList.remove("active");
+    document.getElementById(id).classList.remove("active");
   });
   if (currentTopic === "motivation") {
     document.getElementById("topic-motivation").classList.add("active");
@@ -281,14 +268,12 @@ function highlightCurrentTopic() {
   }
 }
 
-// --- Language toggle ---
 function toggleLanguage() {
   appLang = appLang === "tr" ? "en" : "tr";
   applyTexts();
   loadTasks();
 }
 
-// --- Init ---
 document.addEventListener("DOMContentLoaded", () => {
   if (tg) tg.ready();
 
@@ -317,7 +302,6 @@ document.addEventListener("DOMContentLoaded", () => {
     menu.classList.remove("show");
 
     if (action === "change-topic") {
-      // zaten topic pill'ler var, burada belki ayrı modal açarsın
       alert(appLang === "tr" ? "Konu yukarıdan değiştirilebilir." : "You can change topic from the top.");
     } else if (action === "add-favorite") {
       addFavorite();
