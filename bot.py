@@ -1,7 +1,7 @@
 import logging
 import os
 import random
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 
 import requests
@@ -31,7 +31,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")  # Render / local env üzerinden gelecek
 WEBAPP_URL = os.getenv("WEBAPP_URL")  # İstersen mini app / landing page için
 
 # AdsGram Bot monetization
-# Kullanıcı: PlatformID / blockId = 16417
+# Kullanıcı PlatformID / blockId = 16417
 ADSGRAM_BLOCK_ID = 16417
 
 # Her X sözde bir otomatik reklam
@@ -39,6 +39,11 @@ AD_FREQUENCY = 3
 
 # Kullanıcı başı günlük max reklam sayısı
 MAX_ADS_PER_DAY = 10
+
+# XP kazançları
+XP_PER_QUOTE = 10
+XP_PER_AD = 15
+XP_PER_REF = 30
 
 # ---------------------------------------------------------------------
 # LOGGING
@@ -89,7 +94,7 @@ TEXTS = {
             "📚 DailyQuoteBot yardım\n\n"
             "/start - Botu başlat / menüyü göster\n"
             "/quote - Yeni bir söz gönder\n"
-            "/stats - Bugünkü söz ve reklam istatistiklerini göster\n"
+            "/stats - Bugünkü söz, reklam ve seviye istatistiklerini göster\n"
             "/invite - Davet linkini al (referral)\n\n"
             "Alt taraftaki butonlarla da aynı işlemleri yapabilirsin."
         ),
@@ -105,13 +110,17 @@ TEXTS = {
             "📊 Bugünkü istatistiklerin:\n\n"
             "Söz sayısı: {quotes}\n"
             "Gösterilen reklam sayısı: {ads}\n"
-            "Bugün davet ettiğin yeni kullanıcı: {refs}\n"
+            "Bugün davet ettiğin yeni kullanıcı: {refs}\n\n"
+            "Toplam XP: {xp}\n"
+            "Seviyen: {level}\n"
+            "Günlük seri (streak): {streak} gün\n"
         ),
         "fallback": (
             "DailyQuoteBot'u kullanmak için aşağıdaki butonlardan birini seçebilirsin 👇"
         ),
         "invite_text": "Arkadaşlarını davet etmek için linkin:\n{link}\n\nŞu ana kadar toplam {count} kullanıcı seni referans alarak geldi.",
         "ref_thanks": "Bu botu bir arkadaşının davetiyle kullanmaya başladın ❤️",
+        "level_up": "🎉 Tebrikler! Yeni seviyeye ulaştın: Level {level}",
     },
     "en": {
         "start": (
@@ -126,7 +135,7 @@ TEXTS = {
             "📚 DailyQuoteBot help\n\n"
             "/start - Show menu / welcome message\n"
             "/quote - Send a new quote\n"
-            "/stats - Show today's quote & ad stats\n"
+            "/stats - Show today's quotes, ads and level stats\n"
             "/invite - Get your invite link (referral)\n\n"
             "You can also use the buttons below the messages."
         ),
@@ -142,21 +151,26 @@ TEXTS = {
             "📊 Your stats for today:\n\n"
             "Quotes: {quotes}\n"
             "Ads shown: {ads}\n"
-            "New users referred today: {refs}\n"
+            "New users referred today: {refs}\n\n"
+            "Total XP: {xp}\n"
+            "Your level: {level}\n"
+            "Daily streak: {streak} days\n"
         ),
         "fallback": (
             "You can use the buttons below to get quotes 👇"
         ),
         "invite_text": "Here is your invite link:\n{link}\n\nSo far {count} users joined via your referral.",
         "ref_thanks": "You joined this bot via your friend's invite ❤️",
+        "level_up": "🎉 Congrats! You reached a new level: Level {level}",
     },
 }
 
 # ---------------------------------------------------------------------
-# KULLANICI STATE: SAYAÇ + REFERRAL
+# KULLANICI STATE: SAYAÇ + REFERRAL + XP/LEVEL/STREAK
 # ---------------------------------------------------------------------
 
-# {user_id: {"day": date, "quotes": int, "ads": int, "refs_today": int}}
+# {user_id: {"day": date, "quotes": int, "ads": int, "refs_today": int,
+#            "xp": int, "streak": int, "last_active": date}}
 USER_STATS = {}
 
 # Referral ilişkileri
@@ -176,13 +190,46 @@ def get_lang(update: Update) -> str:
 
 
 def ensure_user_stats(user_id: int) -> dict:
-    """Kullanıcı için bugüne ait sayaçları hazırla."""
+    """Kullanıcı için bugüne ait sayaçları hazırlar + streak hesaplar."""
     today = date.today()
     stats = USER_STATS.get(user_id)
-    if not stats or stats.get("day") != today:
-        stats = {"day": today, "quotes": 0, "ads": 0, "refs_today": 0}
+
+    if not stats:
+        stats = {
+            "day": today,
+            "quotes": 0,
+            "ads": 0,
+            "refs_today": 0,
+            "xp": 0,
+            "streak": 1,
+            "last_active": today,
+        }
         USER_STATS[user_id] = stats
+        return stats
+
+    # Streak güncelleme
+    last_active = stats.get("last_active")
+    if last_active != today:
+        if isinstance(last_active, date) and last_active == today - timedelta(days=1):
+            stats["streak"] = stats.get("streak", 1) + 1
+        else:
+            stats["streak"] = 1
+        stats["last_active"] = today
+
+    # Günlük sayaçları resetle (quotes/ads/refs_today) ama XP & streak kalsın
+    if stats.get("day") != today:
+        stats["day"] = today
+        stats["quotes"] = 0
+        stats["ads"] = 0
+        stats["refs_today"] = 0
+
+    USER_STATS[user_id] = stats
     return stats
+
+
+def get_level(xp: int) -> int:
+    """XP'den Level hesaplar. 0–99 XP -> 1, 100–199 -> 2, vs."""
+    return 1 + xp // 100
 
 
 def get_random_quote(lang: str) -> str:
@@ -313,9 +360,8 @@ async def send_adsgram_ad(
     user_id: int,
 ) -> None:
     """
-    AdsGram Bot Monetization API:
-    GET https://api.adsgram.ai/advbot?tgid={TELEGRAM_USER_ID}&blockid={BLOCK_ID}&language={lang}
-    Dönen veriyi HTML + buton ile gönderir. :contentReference[oaicite:0]{index=0}
+    AdsGram Bot Monetization API örneği.
+    Geri dönen HTML metin + butonları kullanıcıya gönderir.
     """
     stats = ensure_user_stats(user_id)
     if stats["ads"] >= MAX_ADS_PER_DAY:
@@ -334,7 +380,6 @@ async def send_adsgram_ad(
     except Exception as e:
         logger.warning(f"AdsGram error: {e}")
         t = TEXTS[lang]
-        # Hata varsa kullanıcıyı boğmadan basit mesaj
         if update.callback_query:
             await update.callback_query.message.reply_text(t["ad_error"])
         elif update.message:
@@ -360,9 +405,8 @@ async def send_adsgram_ad(
 
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
 
-    # Reklam forward edilemesin diye protect_content=True kullanıyoruz. :contentReference[oaicite:1]{index=1}
+    # Reklam forward edilemesin diye protect_content=True
     if image_url:
-        # Fotoğraf + HTML caption
         if update.callback_query:
             await update.callback_query.message.reply_photo(
                 photo=image_url,
@@ -390,7 +434,6 @@ async def send_adsgram_ad(
                 protect_content=True,
             )
     else:
-        # Sadece HTML text
         if update.callback_query:
             await update.callback_query.message.reply_text(
                 text_html,
@@ -416,6 +459,8 @@ async def send_adsgram_ad(
             )
 
     stats["ads"] += 1
+    # Reklam izleyene XP ver
+    stats["xp"] = stats.get("xp", 0) + XP_PER_AD
 
 
 # ---------------------------------------------------------------------
@@ -450,9 +495,10 @@ def handle_referral(user_id: int, args: list[str], lang: str) -> str | None:
         REFERRALS[referrer_id] = set()
     REFERRALS[referrer_id].add(user_id)
 
-    # Günlük referral sayaçları
+    # Günlük referral sayaçları + XP
     stats = ensure_user_stats(referrer_id)
     stats["refs_today"] += 1
+    stats["xp"] = stats.get("xp", 0) + XP_PER_REF
 
     t = TEXTS[lang]
     return t["ref_thanks"]
@@ -542,16 +588,34 @@ async def send_quote_logic(
             await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=kb)
         return
 
+    # Level hesaplama (önce / sonra)
+    old_xp = stats.get("xp", 0)
+    old_level = get_level(old_xp)
+
     extra_prefix = t["extra_thanks"] if extra else None
     await send_quote_image(update, context, quote, lang, extra_prefix=extra_prefix)
 
-    # Sayaç güncelle
+    # Sayaç ve XP güncelle
     stats["quotes"] += 1
+    stats["xp"] = stats.get("xp", 0) + XP_PER_QUOTE
+    new_level = get_level(stats["xp"])
 
     # Otomatik reklam tetikleme (her AD_FREQUENCY sözde)
     if not extra:
         if stats["quotes"] % AD_FREQUENCY == 0 and stats["ads"] < MAX_ADS_PER_DAY:
             await send_adsgram_ad(update, context, lang, user_id)
+
+    # Level up olduysa kutlama mesajı
+    if new_level > old_level:
+        lvl_msg = TEXTS[lang]["level_up"].format(level=new_level)
+        kb = build_main_keyboard(lang)
+        if update.message:
+            await update.message.reply_text(lvl_msg, reply_markup=kb)
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(lvl_msg, reply_markup=kb)
+        else:
+            chat_id = update.effective_chat.id
+            await context.bot.send_message(chat_id=chat_id, text=lvl_msg, reply_markup=kb)
 
 
 async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -560,21 +624,32 @@ async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ Bugünkü istatistikleri göster. """
+    """ Bugünkü istatistikleri + XP/Level/Streak göster. """
     lang = get_lang(update)
     t = TEXTS[lang]
     user = update.effective_user
     user_id = user.id if user else 0
     stats = ensure_user_stats(user_id)
 
-    # Referral toplamı
+    xp = stats.get("xp", 0)
+    level = get_level(xp)
+    streak = stats.get("streak", 1)
+
+    # Günlük referral + toplam referral
     total_refs = len(REFERRALS.get(user_id, set()))
     text = t["stats"].format(
         quotes=stats["quotes"],
         ads=stats["ads"],
         refs=stats["refs_today"],
+        xp=xp,
+        level=level,
+        streak=streak,
     )
-    text += f"\nToplam referanslı kullanıcı sayın: {total_refs}" if lang == "tr" else f"\nTotal users referred so far: {total_refs}"
+    # Toplam referanslı kullanıcı sayısı satırı
+    if lang == "tr":
+        text += f"Toplam referanslı kullanıcı sayın: {total_refs}"
+    else:
+        text += f"Total users referred so far: {total_refs}"
 
     kb = build_main_keyboard(lang)
     await update.message.reply_text(text, reply_markup=kb)
@@ -653,7 +728,7 @@ def main() -> None:
     # Diğer tüm metinlere fallback
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
 
-    logger.info("DailyQuoteBot (message bot + AdsGram + referral) is running...")
+    logger.info("DailyQuoteBot (message bot + AdsGram + referral + XP/level) is running...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
