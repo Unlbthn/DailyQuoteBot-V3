@@ -30,7 +30,7 @@ from telegram.ext import (
 # CONFIG
 # ---------------------------------------------------------------------
 
-BOT_TOKEN = os.getenv("8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k")
+BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 WEBAPP_URL = os.getenv("WEBAPP_URL")  # Opsiyonel WebApp URL
 
 ADSGRAM_BLOCK_ID = 16417             # Senin AdsGram ID
@@ -959,13 +959,8 @@ async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 # MAIN
 # ---------------------------------------------------------------------
 
-def main() -> None:
-    if not BOT_TOKEN:
-        raise RuntimeError(
-            "BOT_TOKEN environment variable set edilmemiş. "
-            "Örn: export BOT_TOKEN='123456:ABC-DEF'"
-        )
 
+    
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -988,4 +983,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
