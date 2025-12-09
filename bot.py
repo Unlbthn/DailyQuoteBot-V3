@@ -348,6 +348,10 @@ TOPIC_LABELS = {
 # METİN DİZİLERİ
 # -------------------------------------------------
 
+# -------------------------------------------------
+# METİN DİZİLERİ
+# -------------------------------------------------
+
 TEXTS = {
     "tr": {
         "welcome_lang": "Lütfen dil seç:\n\nPlease select your language:",
@@ -356,17 +360,18 @@ TEXTS = {
             "Konulara göre anlamlı sözler keşfedebilirsin.\n"
             "Önce bir konu seç, sonra 'Yeni söz' ile devam et 👇"
         ),
-        "help": (
-            "📚 DailyQuoteBot yardım\n\n"
-            "/start - Karşılama ve menü\n"
-            "/quote - Mevcut konuya göre yeni söz\n\n"
-            "Butonlarla:\n"
-            "• Konu seç / değiştir\n"
-            "• Yeni söz al\n"
-            "• Favorilere ekle / Favorilerim\n"
-            "• WhatsApp / Telegram paylaş\n"
-            "• Ayarlar (dil + günün sözü bildirimi)\n"
-        ),
+        "help": """📚 DailyQuoteBot yardım
+
+/start - Karşılama ve menü
+/quote - Mevcut konuya göre yeni söz
+
+Butonlarla:
+• Konu seç / değiştir
+• Yeni söz al
+• Favorilere ekle / Favorilerim
+• WhatsApp / Telegram paylaş
+• Ayarlar (dil + günün sözü bildirimi)
+""",
         "quote_prefix": "Bugünün sözü:",
         "no_quote": "Şu an için gösterecek söz bulamadım.",
         "ad_error": "Şu anda reklam gösterilemiyor, lütfen daha sonra tekrar dene.",
@@ -388,13 +393,30 @@ TEXTS = {
             "You can discover meaningful quotes by topics.\n"
             "First choose a topic, then tap 'New quote' 👇"
         ),
-        "help": (
-            "📚 DailyQuoteBot help\n\n"
-            "/start - Welcome & menu\n"
-            "/quote - New quote for current topic\n\n"
-            "With the buttons you can:\n"
-            "• Choose / change topic\n"
-            "• Get new quotes\n"
-            "• Add to favorites / view favorites\n"
-            "• Share via WhatsApp / Telegram\n"
-            "• Open settings (language + daily
+        "help": """📚 DailyQuoteBot help
+
+/start - Welcome & menu
+/quote - New quote for current topic
+
+With the buttons you can:
+• Choose / change topic
+• Get new quotes
+• Add to favorites / view favorites
+• Share via WhatsApp / Telegram
+• Open settings (language + daily quote notification)
+""",
+        "quote_prefix": "Today's quote:",
+        "no_quote": "I don't have a quote to show right now.",
+        "ad_error": "Ad is not available right now, please try again later.",
+        "fallback": "You can use the buttons below to use DailyQuoteBot 👇",
+        "topic_changed": "Topic changed to: {topic}. Now you can get a new quote.",
+        "fav_added": "I added this quote to your favorites ⭐",
+        "fav_empty": "You don't have any favorite quotes yet.",
+        "fav_header": "📂 Your favorite quotes:",
+        "settings_title": "⚙️ Settings",
+        "settings_daily_on": "Daily quote notification: ON",
+        "settings_daily_off": "Daily quote notification: OFF",
+        "settings_lang": "Language / Dil:",
+        "daily_quote_title": "📅 Daily quote",
+    },
+}
