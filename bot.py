@@ -1,7 +1,7 @@
 import logging
 import os
 import random
-from datetime import date, timedelta
+from datetime import date
 from io import BytesIO
 
 import requests
@@ -27,23 +27,15 @@ from telegram.ext import (
 # CONFIG
 # ---------------------------------------------------------------------
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Render / local env üzerinden gelecek
-WEBAPP_URL = os.getenv("WEBAPP_URL")  # İstersen mini app / landing page için
+BOT_TOKEN = os.getenv("BOT_TOKEN")          # Render / local env
+WEBAPP_URL = os.getenv("WEBAPP_URL")       # Varsa WebApp için
 
-# AdsGram Bot monetization
-# Kullanıcı PlatformID / blockId = 16417
-ADSGRAM_BLOCK_ID = 16417
+ADSGRAM_BLOCK_ID = 16417                   # Senin AdsGram block ID
 
-# Her X sözde bir otomatik reklam
-AD_FREQUENCY = 3
+AD_FREQUENCY = 4                           # Her 4 sözde bir otomatik reklam
+MAX_ADS_PER_DAY = 10                       # Kullanıcı başı günlük reklam sınırı
 
-# Kullanıcı başı günlük max reklam sayısı
-MAX_ADS_PER_DAY = 10
-
-# XP kazançları
-XP_PER_QUOTE = 10
-XP_PER_AD = 15
-XP_PER_REF = 30
+DEFAULT_TOPIC = "motivation"
 
 # ---------------------------------------------------------------------
 # LOGGING
@@ -56,132 +48,239 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------
-# BASİT SÖZ HAVUZU (TR/EN)
+# SÖZ HAVUZU (TOPIC -> {tr: [], en: []})
+# Tamamen bizden çıkan, generic ve güvenli cümleler
 # ---------------------------------------------------------------------
 
 QUOTES = {
-    "tr": [
-        "Bugün kendine iyi davranmayı unutma.",
-        "Her gün, yeni bir başlangıçtır.",
-        "Vazgeçmeyenler, kazananlardır.",
-        "Küçük adımlar, büyük değişimlere yol açar.",
-        "Kendine inandığın an, her şey mümkündür.",
-    ],
-    "en": [
-        "Be kind to yourself today.",
-        "Every day is a new beginning.",
-        "Those who never give up are the ones who win.",
-        "Small steps lead to big changes.",
-        "Once you believe in yourself, anything is possible.",
-    ],
+    "motivation": {
+        "tr": [
+            "Bugün attığın küçük bir adım, yarınki büyük değişimin başlangıcı olabilir.",
+            "Yorulduğunda durma, sadece nefeslen; sonra yola devam et.",
+            "Zor günler biter, kazandığın güç seninle kalır.",
+            "Kendine inanmak, başarının yarısından fazlasıdır.",
+            "Kusursuz olmak zorunda değilsin, sadece vazgeçmemek yeter.",
+            "Bir şey seni korkutuyorsa, büyük ihtimalle büyüme alanındır.",
+            "Dünün pişmanlıklarıyla değil, bugünün imkanlarıyla ilgilen.",
+            "Kendin için çalıştığın her gün, gelecekteki sana bir teşekkür borcudur.",
+            "Hedeflerin seni biraz korkutuyorsa, doğru yoldasın demektir.",
+            "Bugün başlamak için en iyi gün."
+        ],
+        "en": [
+            "A small step today can be the beginning of a big change tomorrow.",
+            "When you feel tired, don’t quit, just pause and breathe.",
+            "Hard days end, but the strength you gain stays with you.",
+            "Believing in yourself is more than half of success.",
+            "You don’t need to be perfect, you just need to keep going.",
+            "If something scares you, it’s probably where you grow.",
+            "Care less about yesterday’s regrets, more about today’s possibilities.",
+            "Every day you work for yourself, your future self owes you a thank you.",
+            "If your goals scare you a little, you’re on the right track.",
+            "Today is the best day to start."
+        ],
+    },
+    "love": {
+        "tr": [
+            "Sevgi, söylemekten çok göstermeyi bilenlerin dilidir.",
+            "Doğru insan, seni değiştirmeye çalışmaz; olduğun halinle yanındadır.",
+            "Kalpten çıkan her şey, bir gün mutlaka sahibini bulur.",
+            "Bazı insanlar, hayatımıza iyi ki ve iyi ki daha erken girseydi dedirtir.",
+            "Sevmek; aynı gökyüzüne bakarken aynı duayı fısıldamaktır.",
+            "İyi bir kalbin varsa, dünyanın en güzel zenginliğine sahipsin demektir.",
+            "Değer verdiğini göstermediğin sevgi, zamanla küser.",
+            "Yanında huzur bulduğun insan, en büyük şansındır.",
+            "Gerçek sevgi, en zor zamanda bile elini bırakmayandır.",
+            "Kalbini yormayan her şey, sana iyi gelir."
+        ],
+        "en": [
+            "Love is the language of those who know how to show more than they say.",
+            "The right person doesn’t try to change you; they stand by you as you are.",
+            "Everything that comes from the heart eventually finds its place.",
+            "Some people make you say ‘I’m glad you came’ and ‘I wish you came earlier’.",
+            "To love is to whisper the same wish under the same sky.",
+            "If you have a kind heart, you already own the most beautiful wealth.",
+            "Love that is not shown slowly fades away.",
+            "The one who brings you peace is your greatest luck.",
+            "Real love doesn’t let go of your hand in the hardest moments.",
+            "Anything that doesn’t exhaust your heart is good for you."
+        ],
+    },
+    "success": {
+        "tr": [
+            "Başarı, kimsenin görmediği saatlerde verilen emeklerin özetidir.",
+            "Disiplin, motivasyonun olmadığı günlerde seni yola devam ettiren güçtür.",
+            "Hatalar, yeterince cesur olanların öğretmenidir.",
+            "Hayallerine yatırım yaptığın her gün, en iyi faizle sana geri döner.",
+            "Başarılı insanlar bahane değil, çözüm arar.",
+            "Her ‘olmadı’ dediğin anda, aslında bir şeyler öğrenmiş olursun.",
+            "Bir hedefin yoksa, vardığın yerin anlamı olmaz.",
+            "Planı olan, paniği yönetir; planı olmayan panikler.",
+            "Başarı, aynı hatayı tekrar etmemeyi öğrenmektir.",
+            "Bugün konfor alanından çıkmazsan, yarın hayal ettiğin hayata giremezsin."
+        ],
+        "en": [
+            "Success is the summary of all the effort no one sees.",
+            "Discipline is what keeps you moving when motivation is gone.",
+            "Mistakes are teachers for those who are brave enough to try.",
+            "Every day you invest in your dreams pays back with the best interest.",
+            "Successful people search for solutions, not excuses.",
+            "Every time you say ‘it didn’t work’, you still learn something.",
+            "If you have no goal, the place you arrive loses its meaning.",
+            "Those with a plan manage panic; those without a plan panic.",
+            "Success is learning not to repeat the same mistake.",
+            "If you never leave your comfort zone today, you can’t enter your dream life tomorrow."
+        ],
+    },
+    "life": {
+        "tr": [
+            "Hayat, ertelediklerin değil; yaşadığın anların toplamıdır.",
+            "Bazen hiçbir şey yolunda gitmez, ama sen yine de yolunda gitmek zorundasın.",
+            "Zaman, geri alamadığın tek sermayendir; nereye harcadığına dikkat et.",
+            "Kıyaslamak, mutluluğun en hızlı katilidir.",
+            "Kabul etmek, değiştiremediğin şeylerle barışmanın ilk adımıdır.",
+            "Bazı kapılar kapanır, çünkü artık o odada işin bitmiştir.",
+            "Düşüncelerini değiştirdiğinde, hikâyen de değişmeye başlar.",
+            "Her şey üstüne geliyorsa, belki de doğruldun demektir.",
+            "Bazen en büyük cesaret, devam etmek değil; bırakabilmektir.",
+            "Bugün, geri kalan hayatının ilk günü."
+        ],
+        "en": [
+            "Life is not what you postpone, it’s what you actually live.",
+            "Sometimes nothing goes right, but you still need to keep moving.",
+            "Time is the only capital you can’t get back; spend it wisely.",
+            "Comparison is the fastest killer of happiness.",
+            "Acceptance is the first step to making peace with what you can’t change.",
+            "Some doors close because your time in that room is over.",
+            "When you change your thoughts, your story starts to change too.",
+            "If everything feels like it’s coming at you, maybe you’ve finally stood up.",
+            "Sometimes the biggest courage is not to continue, but to let go.",
+            "Today is the first day of the rest of your life."
+        ],
+    },
+    "selfcare": {
+        "tr": [
+            "Dinlenmek, pes etmek değildir; yeniden başlamak için güç toplamaktır.",
+            "Hayır demek, bazen kendine evet demenin tek yoludur.",
+            "Herkesi memnun etmeye çalışırken, en çok kendini kırarsın.",
+            "Sınır koymak, sevgisiz olmak değil; kendine saygı duymaktır.",
+            "Yavaşlamak, hayattan geri kalmak değil; hayatı daha iyi görmek demektir.",
+            "Kendinle geçirdiğin zaman, en değerli randevundur.",
+            "İyi hissetmek için bazen hiçbir şey yapmamak gerekir.",
+            "Kendine şefkat göstermek, en güçlü iyileşme aracındır.",
+            "İzin ver; bazı günler sadece ‘idare eder’ ol, bu da normal.",
+            "Kendini dinlemezsen, bedenin ve ruhun bir gün seni susturur."
+        ],
+        "en": [
+            "Resting is not giving up; it’s gathering strength to start again.",
+            "Sometimes saying no is the only way to say yes to yourself.",
+            "Trying to please everyone often breaks you the most.",
+            "Setting boundaries is not a lack of love; it’s a sign of self-respect.",
+            "Slowing down is not falling behind; it’s seeing life more clearly.",
+            "Time spent with yourself is your most valuable appointment.",
+            "Sometimes to feel better, you need to do nothing at all.",
+            "Self-compassion is your strongest healing tool.",
+            "Allow yourself to be ‘just okay’ on some days; that’s normal too.",
+            "If you don’t listen to yourself, your body and soul will one day silence you."
+        ],
+    },
+}
+
+TOPIC_LABELS = {
+    "tr": {
+        "motivation": "Motivasyon",
+        "love": "Aşk",
+        "success": "Başarı",
+        "life": "Hayat",
+        "selfcare": "Kendine iyi bak",
+    },
+    "en": {
+        "motivation": "Motivation",
+        "love": "Love",
+        "success": "Success",
+        "life": "Life",
+        "selfcare": "Self-care",
+    },
 }
 
 # ---------------------------------------------------------------------
-# DİL METİNLERİ
+# METİN DİZİLERİ
 # ---------------------------------------------------------------------
 
 TEXTS = {
     "tr": {
         "start": (
             "✨ DailyQuoteBot'a hoş geldin!\n\n"
-            "Günün motivasyon sözlerini görmek için aşağıdaki butonları kullanabilirsin.\n\n"
-            "• 'Yeni söz' ile sıradaki sözü aç\n"
-            "• 'Ekstra söz (reklam)' ile gönüllü reklam sonrası bonus söz al\n"
-            "• 'Web App' ile premium arayüze (varsa) geçiş yap\n\n"
-            "Hazırsan başlıyoruz 👇"
+            "Konulara göre anlamlı sözler keşfedebilirsin:\n"
+            "• Motivasyon\n"
+            "• Aşk\n"
+            "• Başarı\n"
+            "• Hayat\n"
+            "• Kendine iyi bak\n\n"
+            "Aşağıdaki butonlardan konunu seç, ardından 'Yeni söz' ile devam et 👇"
         ),
         "help": (
             "📚 DailyQuoteBot yardım\n\n"
-            "/start - Botu başlat / menüyü göster\n"
-            "/quote - Yeni bir söz gönder\n"
-            "/stats - Bugünkü söz, reklam ve seviye istatistiklerini göster\n"
-            "/invite - Davet linkini al (referral)\n\n"
-            "Alt taraftaki butonlarla da aynı işlemleri yapabilirsin."
+            "/start - Karşılama mesajı ve menü\n"
+            "/quote - Mevcut konuya göre yeni söz\n\n"
+            "Mesaj altındaki butonlardan da:\n"
+            "• Konu seçebilir\n"
+            "• Yeni söz alabilir\n"
+            "• Ekstra söz için reklam izleyebilirsin."
         ),
         "btn_new": "🔁 Yeni söz",
         "btn_extra": "🎁 Ekstra söz (reklam)",
         "btn_webapp": "🌐 Web App",
         "quote_prefix": "Bugünün sözü:",
-        "extra_thanks": "Reklam görevini tamamladığın için teşekkürler 🙌 İşte ekstra sözün:",
         "no_quote": "Şu an için gösterecek söz bulamadım.",
-        "ad_label": "Reklam",
         "ad_error": "Şu anda reklam gösterilemiyor, lütfen daha sonra tekrar dene.",
-        "stats": (
-            "📊 Bugünkü istatistiklerin:\n\n"
-            "Söz sayısı: {quotes}\n"
-            "Gösterilen reklam sayısı: {ads}\n"
-            "Bugün davet ettiğin yeni kullanıcı: {refs}\n\n"
-            "Toplam XP: {xp}\n"
-            "Seviyen: {level}\n"
-            "Günlük seri (streak): {streak} gün\n"
-        ),
-        "fallback": (
-            "DailyQuoteBot'u kullanmak için aşağıdaki butonlardan birini seçebilirsin 👇"
-        ),
-        "invite_text": "Arkadaşlarını davet etmek için linkin:\n{link}\n\nŞu ana kadar toplam {count} kullanıcı seni referans alarak geldi.",
-        "ref_thanks": "Bu botu bir arkadaşının davetiyle kullanmaya başladın ❤️",
-        "level_up": "🎉 Tebrikler! Yeni seviyeye ulaştın: Level {level}",
+        "fallback": "DailyQuoteBot'u kullanmak için aşağıdaki butonları kullanabilirsin 👇",
+        "topic_changed": "Konu değiştirildi: {topic}. Şimdi yeni bir söz alabilirsin.",
     },
     "en": {
         "start": (
             "✨ Welcome to DailyQuoteBot!\n\n"
-            "Use the buttons below to get your daily motivational quotes.\n\n"
-            "• 'New quote' to get the next quote\n"
-            "• 'Extra quote (ad)' to optionally watch an ad and get a bonus quote\n"
-            "• 'Web App' to switch to the premium interface (if available)\n\n"
-            "Let's begin 👇"
+            "You can discover meaningful quotes by topics:\n"
+            "• Motivation\n"
+            "• Love\n"
+            "• Success\n"
+            "• Life\n"
+            "• Self-care\n\n"
+            "Choose your topic from the buttons below, then tap 'New quote' 👇"
         ),
         "help": (
             "📚 DailyQuoteBot help\n\n"
-            "/start - Show menu / welcome message\n"
-            "/quote - Send a new quote\n"
-            "/stats - Show today's quotes, ads and level stats\n"
-            "/invite - Get your invite link (referral)\n\n"
-            "You can also use the buttons below the messages."
+            "/start - Welcome message and menu\n"
+            "/quote - New quote for your current topic\n\n"
+            "From the buttons below you can:\n"
+            "• Change topic\n"
+            "• Get new quotes\n"
+            "• Watch an ad to get an extra quote."
         ),
         "btn_new": "🔁 New quote",
         "btn_extra": "🎁 Extra quote (ad)",
         "btn_webapp": "🌐 Web App",
         "quote_prefix": "Today's quote:",
-        "extra_thanks": "Thanks for completing the ad task 🙌 Here is your extra quote:",
         "no_quote": "I don't have a quote to show right now.",
-        "ad_label": "Ad",
         "ad_error": "Ad is not available right now, please try again later.",
-        "stats": (
-            "📊 Your stats for today:\n\n"
-            "Quotes: {quotes}\n"
-            "Ads shown: {ads}\n"
-            "New users referred today: {refs}\n\n"
-            "Total XP: {xp}\n"
-            "Your level: {level}\n"
-            "Daily streak: {streak} days\n"
-        ),
-        "fallback": (
-            "You can use the buttons below to get quotes 👇"
-        ),
-        "invite_text": "Here is your invite link:\n{link}\n\nSo far {count} users joined via your referral.",
-        "ref_thanks": "You joined this bot via your friend's invite ❤️",
-        "level_up": "🎉 Congrats! You reached a new level: Level {level}",
+        "fallback": "You can use the buttons below to use DailyQuoteBot 👇",
+        "topic_changed": "Topic changed to: {topic}. Now you can get a new quote.",
     },
 }
 
 # ---------------------------------------------------------------------
-# KULLANICI STATE: SAYAÇ + REFERRAL + XP/LEVEL/STREAK
+# STATE
 # ---------------------------------------------------------------------
 
-# {user_id: {"day": date, "quotes": int, "ads": int, "refs_today": int,
-#            "xp": int, "streak": int, "last_active": date}}
+# Kullanıcı günlük sayaçları
+# {user_id: {"day": date, "quotes": int, "ads": int}}
 USER_STATS = {}
 
-# Referral ilişkileri
-# {user_id: referrer_id}
-REFERRED_BY = {}
-# {referrer_id: set(user_ids)}
-REFERRALS = {}
+# Kullanıcı seçili konusu
+# {user_id: "motivation" | "love" | ...}
+USER_TOPIC = {}
 
 
 def get_lang(update: Update) -> str:
-    """Telegram language_code'a göre 'tr' veya 'en' döner."""
     user = update.effective_user
     code = (user.language_code or "").lower() if user else ""
     if code.startswith("tr"):
@@ -189,71 +288,47 @@ def get_lang(update: Update) -> str:
     return "en"
 
 
-def ensure_user_stats(user_id: int) -> dict:
-    """Kullanıcı için bugüne ait sayaçları hazırlar + streak hesaplar."""
+def ensure_stats(user_id: int) -> dict:
     today = date.today()
     stats = USER_STATS.get(user_id)
-
-    if not stats:
-        stats = {
-            "day": today,
-            "quotes": 0,
-            "ads": 0,
-            "refs_today": 0,
-            "xp": 0,
-            "streak": 1,
-            "last_active": today,
-        }
+    if not stats or stats.get("day") != today:
+        stats = {"day": today, "quotes": 0, "ads": 0}
         USER_STATS[user_id] = stats
-        return stats
-
-    # Streak güncelleme
-    last_active = stats.get("last_active")
-    if last_active != today:
-        if isinstance(last_active, date) and last_active == today - timedelta(days=1):
-            stats["streak"] = stats.get("streak", 1) + 1
-        else:
-            stats["streak"] = 1
-        stats["last_active"] = today
-
-    # Günlük sayaçları resetle (quotes/ads/refs_today) ama XP & streak kalsın
-    if stats.get("day") != today:
-        stats["day"] = today
-        stats["quotes"] = 0
-        stats["ads"] = 0
-        stats["refs_today"] = 0
-
-    USER_STATS[user_id] = stats
     return stats
 
 
-def get_level(xp: int) -> int:
-    """XP'den Level hesaplar. 0–99 XP -> 1, 100–199 -> 2, vs."""
-    return 1 + xp // 100
+def get_user_topic(user_id: int) -> str:
+    topic = USER_TOPIC.get(user_id)
+    if topic not in QUOTES:
+        topic = DEFAULT_TOPIC
+        USER_TOPIC[user_id] = topic
+    return topic
 
 
-def get_random_quote(lang: str) -> str:
-    """Dil için rastgele bir söz döner."""
-    pool = QUOTES.get(lang) or QUOTES["en"]
-    if not pool:
+def set_user_topic(user_id: int, topic: str):
+    if topic in QUOTES:
+        USER_TOPIC[user_id] = topic
+
+
+def get_random_quote_for_user(user_id: int, lang: str) -> str:
+    topic = get_user_topic(user_id)
+    topic_data = QUOTES.get(topic) or QUOTES[DEFAULT_TOPIC]
+    lang_list = topic_data.get(lang) or topic_data.get("en") or []
+    if not lang_list:
         return ""
-    return random.choice(pool)
+    return random.choice(lang_list)
 
 
 # ---------------------------------------------------------------------
-# GÖRSEL QUOTE KARTI (PIL)
+# GÖRSEL KART
 # ---------------------------------------------------------------------
 
 def render_quote_image(quote: str, lang: str) -> BytesIO:
-    """
-    Söz için basit bir siyah+altın temalı görsel üretir.
-    """
     width, height = 800, 800
     bg_color = (0, 0, 0)
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # Altın daire / vurgu
     center = (width // 2, height // 2 - 80)
     radius = 260
     gold = (212, 175, 55)
@@ -266,7 +341,6 @@ def render_quote_image(quote: str, lang: str) -> BytesIO:
         width=4,
     )
 
-    # Üstte tırnak işareti
     mark_text = "❝"
     try:
         font_mark = ImageFont.truetype("arial.ttf", 80)
@@ -274,13 +348,11 @@ def render_quote_image(quote: str, lang: str) -> BytesIO:
         font_mark = ImageFont.load_default()
     draw.text((width // 2 - 25, 80), mark_text, fill=gold, font=font_mark)
 
-    # Quote metni
     try:
         font_quote = ImageFont.truetype("arial.ttf", 32)
     except Exception:
         font_quote = ImageFont.load_default()
 
-    # Basit satır kaydırma
     max_width = width - 160
     words = quote.split()
     lines = []
@@ -301,7 +373,7 @@ def render_quote_image(quote: str, lang: str) -> BytesIO:
     start_y = center[1] - total_text_height // 2
 
     for i, line in enumerate(lines):
-        w_width, w_height = draw.textsize(line, font=font_quote)
+        w_width, _ = draw.textsize(line, font=font_quote)
         x = (width - w_width) // 2
         y = start_y + i * 40
         draw.text((x, y), line, fill=(229, 229, 229), font=font_quote)
@@ -312,45 +384,58 @@ def render_quote_image(quote: str, lang: str) -> BytesIO:
     return buffer
 
 
+def build_main_keyboard(lang: str, user_id: int) -> InlineKeyboardMarkup:
+    t = TEXTS[lang]
+    topic_labels = TOPIC_LABELS[lang]
+    current_topic = get_user_topic(user_id)
+
+    topic_buttons = []
+    for key in ["motivation", "love", "success", "life", "selfcare"]:
+        label = topic_labels.get(key, key)
+        if key == current_topic:
+            label = f"● {label}"
+        else:
+            label = f"○ {label}"
+        topic_buttons.append(
+            InlineKeyboardButton(label, callback_data=f"topic:{key}")
+        )
+
+    rows = [
+        [InlineKeyboardButton(t["btn_new"], callback_data="new_quote")],
+        [InlineKeyboardButton(t["btn_extra"], callback_data="extra_quote")],
+        topic_buttons[:2],
+        topic_buttons[2:],
+    ]
+
+    if WEBAPP_URL:
+        rows.append(
+            [InlineKeyboardButton(t["btn_webapp"], web_app=WebAppInfo(url=WEBAPP_URL))]
+        )
+
+    return InlineKeyboardMarkup(rows)
+
+
 async def send_quote_image(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     quote: str,
     lang: str,
-    extra_prefix: str | None = None,
-) -> None:
-    """Sözü görsel kart olarak gönderir, altına butonları koyar."""
-    kb = build_main_keyboard(lang)
+    user_id: int,
+):
+    kb = build_main_keyboard(lang, user_id)
     img_bytes = render_quote_image(quote, lang)
 
-    caption = None
-    if extra_prefix:
-        caption = extra_prefix
-
     if update.message:
-        await update.message.reply_photo(
-            photo=img_bytes,
-            caption=caption,
-            reply_markup=kb,
-        )
+        await update.message.reply_photo(photo=img_bytes, reply_markup=kb)
     elif update.callback_query:
-        await update.callback_query.message.reply_photo(
-            photo=img_bytes,
-            caption=caption,
-            reply_markup=kb,
-        )
+        await update.callback_query.message.reply_photo(photo=img_bytes, reply_markup=kb)
     else:
         chat_id = update.effective_chat.id
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=img_bytes,
-            caption=caption,
-            reply_markup=kb,
-        )
+        await context.bot.send_photo(chat_id=chat_id, photo=img_bytes, reply_markup=kb)
 
 
 # ---------------------------------------------------------------------
-# ADSGRAM ENTEGRASYONU
+# ADSGRAM
 # ---------------------------------------------------------------------
 
 async def send_adsgram_ad(
@@ -358,18 +443,14 @@ async def send_adsgram_ad(
     context: ContextTypes.DEFAULT_TYPE,
     lang: str,
     user_id: int,
-) -> None:
-    """
-    AdsGram Bot Monetization API örneği.
-    Geri dönen HTML metin + butonları kullanıcıya gönderir.
-    """
-    stats = ensure_user_stats(user_id)
+):
+    stats = ensure_stats(user_id)
     if stats["ads"] >= MAX_ADS_PER_DAY:
-        return  # günlük limit doluysa sessizce çık
+        return
 
     params = {
         "tgid": user_id,
-        "blockid": ADSGRAM_BLOCK_ID,  # numeric, 'bot-' prefixsiz
+        "blockid": ADSGRAM_BLOCK_ID,
         "language": "tr" if lang == "tr" else "en",
     }
 
@@ -395,17 +476,12 @@ async def send_adsgram_ad(
 
     buttons = []
     if button_name and click_url:
-        buttons.append(
-            [InlineKeyboardButton(button_name, url=click_url)]
-        )
+        buttons.append([InlineKeyboardButton(button_name, url=click_url)])
     if button_reward_name and reward_url:
-        buttons.append(
-            [InlineKeyboardButton(button_reward_name, url=reward_url)]
-        )
+        buttons.append([InlineKeyboardButton(button_reward_name, url=reward_url)])
 
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
 
-    # Reklam forward edilemesin diye protect_content=True
     if image_url:
         if update.callback_query:
             await update.callback_query.message.reply_photo(
@@ -459,278 +535,90 @@ async def send_adsgram_ad(
             )
 
     stats["ads"] += 1
-    # Reklam izleyene XP ver
-    stats["xp"] = stats.get("xp", 0) + XP_PER_AD
-
-
-# ---------------------------------------------------------------------
-# REFERRAL SİSTEMİ
-# ---------------------------------------------------------------------
-
-def handle_referral(user_id: int, args: list[str], lang: str) -> str | None:
-    """
-    /start ref_123 şeklinde gelen daveti işler.
-    """
-    if not args:
-        return None
-
-    first = args[0]
-    if not first.startswith("ref_"):
-        return None
-
-    try:
-        referrer_id = int(first.replace("ref_", ""))
-    except ValueError:
-        return None
-
-    if referrer_id == user_id:
-        return None
-
-    # Kullanıcı daha önce refer edildi ise tekrar yazma
-    if user_id in REFERRED_BY:
-        return None
-
-    REFERRED_BY[user_id] = referrer_id
-    if referrer_id not in REFERRALS:
-        REFERRALS[referrer_id] = set()
-    REFERRALS[referrer_id].add(user_id)
-
-    # Günlük referral sayaçları + XP
-    stats = ensure_user_stats(referrer_id)
-    stats["refs_today"] += 1
-    stats["xp"] = stats.get("xp", 0) + XP_PER_REF
-
-    t = TEXTS[lang]
-    return t["ref_thanks"]
-
-
-def build_invite_link(bot_username: str, user_id: int) -> str:
-    return f"https://t.me/{bot_username}?start=ref_{user_id}"
-
-
-# ---------------------------------------------------------------------
-# KLAVYE
-# ---------------------------------------------------------------------
-
-def build_main_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Ana inline keyboard (yeni söz + ekstra söz + webapp)."""
-    t = TEXTS[lang]
-    buttons = [
-        [InlineKeyboardButton(t["btn_new"], callback_data="new_quote")],
-        [InlineKeyboardButton(t["btn_extra"], callback_data="extra_quote")],
-    ]
-    if WEBAPP_URL:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    t["btn_webapp"],
-                    web_app=WebAppInfo(url=WEBAPP_URL),
-                )
-            ]
-        )
-    return InlineKeyboardMarkup(buttons)
 
 
 # ---------------------------------------------------------------------
 # HANDLER'LAR
 # ---------------------------------------------------------------------
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(update)
     t = TEXTS[lang]
     user = update.effective_user
     user_id = user.id if user else 0
 
-    # Referral kontrolü
-    ref_msg = handle_referral(user_id, context.args, lang)
+    # Varsayılan konu
+    get_user_topic(user_id)
 
-    kb = build_main_keyboard(lang)
-    text = t["start"]
-    if ref_msg:
-        text = ref_msg + "\n\n" + text
-
-    await update.message.reply_text(text, reply_markup=kb)
+    kb = build_main_keyboard(lang, user_id)
+    await update.message.reply_text(t["start"], reply_markup=kb)
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(update)
     t = TEXTS[lang]
-    kb = build_main_keyboard(lang)
+    user_id = update.effective_user.id
+    kb = build_main_keyboard(lang, user_id)
     await update.message.reply_text(t["help"], reply_markup=kb)
 
 
-async def send_quote_logic(
+async def send_new_quote(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     extra: bool = False,
-) -> None:
-    """
-    Hem normal quote hem ekstra quote mantığı burada.
-    extra=True ise 'reklam sonrası ekstra söz' mesajı ekler.
-    """
+):
     lang = get_lang(update)
-    t = TEXTS[lang]
-
     user = update.effective_user
     user_id = user.id if user else 0
-    stats = ensure_user_stats(user_id)
 
-    quote = get_random_quote(lang)
+    stats = ensure_stats(user_id)
+    quote = get_random_quote_for_user(user_id, lang)
+
     if not quote:
-        msg = t["no_quote"]
-        kb = build_main_keyboard(lang)
+        t = TEXTS[lang]
+        kb = build_main_keyboard(lang, user_id)
         if update.message:
-            await update.message.reply_text(msg, reply_markup=kb)
+            await update.message.reply_text(t["no_quote"], reply_markup=kb)
         elif update.callback_query:
-            await update.callback_query.message.reply_text(msg, reply_markup=kb)
+            await update.callback_query.message.reply_text(t["no_quote"], reply_markup=kb)
         else:
             chat_id = update.effective_chat.id
-            await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=kb)
+            await context.bot.send_message(chat_id=chat_id, text=t["no_quote"], reply_markup=kb)
         return
 
-    # Level hesaplama (önce / sonra)
-    old_xp = stats.get("xp", 0)
-    old_level = get_level(old_xp)
+    await send_quote_image(update, context, quote, lang, user_id)
 
-    extra_prefix = t["extra_thanks"] if extra else None
-    await send_quote_image(update, context, quote, lang, extra_prefix=extra_prefix)
-
-    # Sayaç ve XP güncelle
     stats["quotes"] += 1
-    stats["xp"] = stats.get("xp", 0) + XP_PER_QUOTE
-    new_level = get_level(stats["xp"])
 
-    # Otomatik reklam tetikleme (her AD_FREQUENCY sözde)
     if not extra:
         if stats["quotes"] % AD_FREQUENCY == 0 and stats["ads"] < MAX_ADS_PER_DAY:
             await send_adsgram_ad(update, context, lang, user_id)
 
-    # Level up olduysa kutlama mesajı
-    if new_level > old_level:
-        lvl_msg = TEXTS[lang]["level_up"].format(level=new_level)
-        kb = build_main_keyboard(lang)
-        if update.message:
-            await update.message.reply_text(lvl_msg, reply_markup=kb)
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(lvl_msg, reply_markup=kb)
-        else:
-            chat_id = update.effective_chat.id
-            await context.bot.send_message(chat_id=chat_id, text=lvl_msg, reply_markup=kb)
+
+async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_new_quote(update, context, extra=False)
 
 
-async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ /quote komutu -> yeni söz """
-    await send_quote_logic(update, context, extra=False)
-
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ Bugünkü istatistikleri + XP/Level/Streak göster. """
-    lang = get_lang(update)
-    t = TEXTS[lang]
-    user = update.effective_user
-    user_id = user.id if user else 0
-    stats = ensure_user_stats(user_id)
-
-    xp = stats.get("xp", 0)
-    level = get_level(xp)
-    streak = stats.get("streak", 1)
-
-    # Günlük referral + toplam referral
-    total_refs = len(REFERRALS.get(user_id, set()))
-    text = t["stats"].format(
-        quotes=stats["quotes"],
-        ads=stats["ads"],
-        refs=stats["refs_today"],
-        xp=xp,
-        level=level,
-        streak=streak,
-    )
-    # Toplam referanslı kullanıcı sayısı satırı
-    if lang == "tr":
-        text += f"Toplam referanslı kullanıcı sayın: {total_refs}"
-    else:
-        text += f"Total users referred so far: {total_refs}"
-
-    kb = build_main_keyboard(lang)
-    await update.message.reply_text(text, reply_markup=kb)
-
-
-async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Kullanıcıya davet linki gönderir."""
-    lang = get_lang(update)
-    t = TEXTS[lang]
-    user = update.effective_user
-    user_id = user.id if user else 0
-
-    bot_username = context.bot.username
-    link = build_invite_link(bot_username, user_id)
-    total_refs = len(REFERRALS.get(user_id, set()))
-
-    msg = t["invite_text"].format(link=link, count=total_refs)
-    kb = build_main_keyboard(lang)
-    await update.message.reply_text(msg, reply_markup=kb)
-
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Inline keyboard callback handler."""
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     lang = get_lang(update)
+    user = update.effective_user
+    user_id = user.id if user else 0
 
     if data == "new_quote":
-        await send_quote_logic(update, context, extra=False)
+        await send_new_quote(update, context, extra=False)
+
     elif data == "extra_quote":
-        user = update.effective_user
-        user_id = user.id if user else 0
-        # 1) Reklam (AdsGram entegrasyonu)
         await send_adsgram_ad(update, context, lang, user_id)
-        # 2) Reklam sonrası ekstra söz
-        await send_quote_logic(update, context, extra=True)
-    else:
+        await send_new_quote(update, context, extra=True)
+
+    elif data.startswith("topic:"):
+        topic_key = data.split(":", 1)[1]
+        set_user_topic(user_id, topic_key)
+        t = TEXTS[lang]
+        label = TOPIC_LABELS[lang].get(topic_key, topic_key)
+        msg = t["topic_changed"].format(topic=label)
+        kb = build_main_keyboard(lang, user_id)
         await query.answer()
-
-
-async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Kullanıcı rastgele bir şey yazarsa:
-    - Ana butonları tekrar göster
-    - Kullanıcıya nasıl kullanacağını hatırlat
-    """
-    lang = get_lang(update)
-    t = TEXTS[lang]
-    kb = build_main_keyboard(lang)
-    await update.message.reply_text(t["fallback"], reply_markup=kb)
-
-
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
-
-def main() -> None:
-    if not BOT_TOKEN:
-        raise RuntimeError(
-            "BOT_TOKEN environment variable set edilmemiş. "
-            "Örn: export BOT_TOKEN='123456:ABC-DEF'"
-        )
-
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Komutlar
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("quote", quote_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("invite", invite_command))
-
-    # Inline buton callback
-    application.add_handler(CallbackQueryHandler(button_callback))
-
-    # Diğer tüm metinlere fallback
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
-
-    logger.info("DailyQuoteBot (message bot + AdsGram + referral + XP/level) is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
+        await query.message.r
