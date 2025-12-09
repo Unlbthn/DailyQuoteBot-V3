@@ -1021,22 +1021,33 @@ def main() -> None:
 
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # Komut handler'ları
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("quote", quote_command))
 
+    # Callback & text handler'ları
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
 
+    # Günlük job – JobQueue varsa kur, yoksa sadece uyarı ver
     ist_tz = ZoneInfo("Europe/Istanbul")
-    app.job_queue.run_daily(
-        daily_quote_job,
-        time=time(hour=DAILY_QUOTE_HOUR, minute=0, tzinfo=ist_tz),
-    )
+    jq = app.job_queue
+    if jq is not None:
+        jq.run_daily(
+            daily_quote_job,
+            time=time(hour=DAILY_QUOTE_HOUR, minute=0, tzinfo=ist_tz),
+        )
+        logger.info(
+            "JobQueue aktif, günlük bildirim planlandı (TR %02d:00).",
+            DAILY_QUOTE_HOUR,
+        )
+    else:
+        logger.warning(
+            "JobQueue mevcut değil. Günlük bildirim çalışmayacak. "
+            "requirements.txt içine python-telegram-bot[job-queue] ekleyebilirsin."
+        )
 
-    logger.info("DailyQuoteBot is running with 12 topics, sports pack and AdsGram...")
+    logger.info("DailyQuoteBot 12 konu, spor pack ve AdsGram ile çalışıyor...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-
-if __name__ == "__main__":
-    main()
