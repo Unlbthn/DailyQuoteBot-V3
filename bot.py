@@ -30,7 +30,7 @@ from telegram.ext import (
 # CONFIG
 # ---------------------------------------------------------------------
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k")
 WEBAPP_URL = os.getenv("WEBAPP_URL")  # Opsiyonel WebApp URL
 
 ADSGRAM_BLOCK_ID = 16417             # Senin AdsGram ID
@@ -988,3 +988,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
