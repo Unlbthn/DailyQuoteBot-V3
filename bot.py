@@ -226,7 +226,7 @@ QUOTES = {
             {"text": "Champions are born in training, not on the field.", "author": None},
             {"text": "Don’t count the days; make the days count.", "author": "Muhammad Ali"},
             {"text": "You have to expect things of yourself before you can do them.", "author": "Michael Jordan"},
-            {"text": "Pain is weakness leaving the body.", "author": None},  # U.S. Marines anonim
+            {"text": "Pain is weakness leaving the body.", "author": None},
             {"text": "Success trains. Failure complains.", "author": None},
             {"text": "You don’t get what you wish for. You get what you work for.", "author": None},
             {"text": "Every champion was once a beginner.", "author": "Muhammad Ali"},
@@ -247,7 +247,7 @@ QUOTES = {
         ],
     },
 
-    # Kalan diğer kategoriler (kısa listeler)
+    # Kısa listeli diğer kategoriler
     "discipline": {
         "tr": [
             {"text": "Disiplin, canın istemediğinde de doğru olanı yapabilmektir.", "author": None},
@@ -309,6 +309,7 @@ QUOTES = {
         ],
     },
 }
+
 # -------------------------------------------------
 # TOPIC LABELS
 # -------------------------------------------------
@@ -343,10 +344,6 @@ TOPIC_LABELS = {
         "gratitude": "Gratitude",
     },
 }
-
-# -------------------------------------------------
-# METİN DİZİLERİ
-# -------------------------------------------------
 
 # -------------------------------------------------
 # METİN DİZİLERİ
@@ -420,3 +417,626 @@ With the buttons you can:
         "daily_quote_title": "📅 Daily quote",
     },
 }
+
+# -------------------------------------------------
+# STATE
+# -------------------------------------------------
+
+USER_LANG = {}          # {user_id: 'tr' / 'en'}
+USER_TOPIC = {}         # {user_id: topic_key}
+USER_STATS = {}         # {user_id: {"day": date, "quotes": int, "ads": int}}
+USER_FAVORITES = {}     # {user_id: [full_quote_str, ...]}
+LAST_QUOTE = {}         # {user_id: full_quote_str}
+DAILY_ENABLED = {}      # {user_id: bool}
+KNOWN_USERS = set()     # {user_id}
+
+
+# -------------------------------------------------
+# YARDIMCI FONKSİYONLAR
+# -------------------------------------------------
+
+def get_lang(update: Update) -> str:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    if user_id in USER_LANG:
+        return USER_LANG[user_id]
+    code = (user.language_code or "").lower() if user else ""
+    if code.startswith("tr"):
+        return "tr"
+    return "en"
+
+
+def ensure_stats(user_id: int) -> dict:
+    today = date.today()
+    stats = USER_STATS.get(user_id)
+    if not stats or stats.get("day") != today:
+        stats = {"day": today, "quotes": 0, "ads": 0}
+        USER_STATS[user_id] = stats
+    return stats
+
+
+def get_user_topic(user_id: int) -> str:
+    topic = USER_TOPIC.get(user_id)
+    if topic not in QUOTES:
+        topic = DEFAULT_TOPIC
+        USER_TOPIC[user_id] = topic
+    return topic
+
+
+def set_user_topic(user_id: int, topic: str):
+    if topic in QUOTES:
+        USER_TOPIC[user_id] = topic
+
+
+def get_random_quote_for_user(user_id: int, lang: str) -> tuple[str, Optional[str]]:
+    topic = get_user_topic(user_id)
+    topic_data = QUOTES.get(topic) or QUOTES[DEFAULT_TOPIC]
+    lang_list = topic_data.get(lang) or topic_data.get("en") or []
+    if not lang_list:
+        return "", None
+    item = random.choice(lang_list)
+    return item["text"], item.get("author")
+
+
+def render_quote_image(quote_text: str, author: Optional[str]) -> BytesIO:
+    width, height = 800, 800
+    bg_color = (0, 0, 0)
+    img = Image.new("RGB", (width, height), bg_color)
+    draw = ImageDraw.Draw(img)
+
+    center = (width // 2, height // 2 - 60)
+    radius = 260
+    gold = (212, 175, 55)
+    draw.ellipse(
+        [
+            (center[0] - radius, center[1] - radius),
+            (center[0] + radius, center[1] + radius),
+        ],
+        outline=gold,
+        width=4,
+    )
+
+    mark_text = "❝"
+    try:
+        font_mark = ImageFont.truetype("arial.ttf", 80)
+    except Exception:
+        font_mark = ImageFont.load_default()
+    draw.text((width // 2 - 25, 80), mark_text, fill=gold, font=font_mark)
+
+    try:
+        font_quote = ImageFont.truetype("arial.ttf", 32)
+    except Exception:
+        font_quote = ImageFont.load_default()
+    try:
+        font_author = ImageFont.truetype("arial.ttf", 26)
+    except Exception:
+        font_author = ImageFont.load_default()
+
+    max_width = width - 160
+    words = quote_text.split()
+    lines = []
+    current = ""
+    for w in words:
+        test = (current + " " + w).strip()
+        w_width, _ = draw.textsize(test, font=font_quote)
+        if w_width <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = w
+    if current:
+        lines.append(current)
+
+    total_text_height = len(lines) * 40
+    used_height = total_text_height
+    if author:
+        used_height += 40
+
+    start_y = center[1] - used_height // 2
+
+    for i, line in enumerate(lines):
+        w_width, _ = draw.textsize(line, font=font_quote)
+        x = (width - w_width) // 2
+        y = start_y + i * 40
+        draw.text((x, y), line, fill=(229, 229, 229), font=font_quote)
+
+    if author:
+        author_text = f"— {author}"
+        aw, _ = draw.textsize(author_text, font=font_author)
+        ax = (width - aw) // 2
+        ay = start_y + total_text_height + 10
+        draw.text((ax, ay), author_text, fill=gold, font=font_author)
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) -> InlineKeyboardMarkup:
+    t = TEXTS[lang]
+    topic_labels = TOPIC_LABELS[lang]
+    current_topic = get_user_topic(user_id)
+
+    topic_keys = [
+        "motivation", "love", "success", "life", "selfcare", "sport",
+        "discipline", "friendship", "resilience", "creativity", "work", "gratitude",
+    ]
+
+    topic_buttons = []
+    for key in topic_keys:
+        label = topic_labels.get(key, key)
+        if key == current_topic:
+            label = f"● {label}"
+        else:
+            label = f"○ {label}"
+        topic_buttons.append(
+            InlineKeyboardButton(label, callback_data=f"topic:{key}")
+        )
+
+    row1 = topic_buttons[:6]
+    row2 = topic_buttons[6:12]
+
+    rows = [
+        [
+            InlineKeyboardButton("🔁 " + ("Yeni söz" if lang == "tr" else "New quote"),
+                                 callback_data="new_quote"),
+            InlineKeyboardButton("🎁 " + ("Ekstra söz (reklam)" if lang == "tr" else "Extra quote (ad)"),
+                                 callback_data="extra_quote"),
+        ],
+        row1,
+        row2,
+        [
+            InlineKeyboardButton("⭐ " + ("Favorilere ekle" if lang == "tr" else "Add to favorites"),
+                                 callback_data="fav_add"),
+            InlineKeyboardButton("📂 " + ("Favorilerim" if lang == "tr" else "My favorites"),
+                                 callback_data="fav_list"),
+        ],
+    ]
+
+    if quote:
+        encoded = urllib.parse.quote_plus(quote)
+        wa_url = f"https://wa.me/?text={encoded}"
+        tg_url = f"https://t.me/share/url?url=&text={encoded}"
+        rows.append(
+            [
+                InlineKeyboardButton("📤 WhatsApp", url=wa_url),
+                InlineKeyboardButton("📤 Telegram", url=tg_url),
+            ]
+        )
+
+    settings_btn = InlineKeyboardButton("⚙️ " + ("Ayarlar" if lang == "tr" else "Settings"),
+                                        callback_data="settings")
+    if WEBAPP_URL:
+        rows.append(
+            [
+                settings_btn,
+                InlineKeyboardButton("🌐 Web App", web_app=WebAppInfo(url=WEBAPP_URL)),
+            ]
+        )
+    else:
+        rows.append([settings_btn])
+
+    return InlineKeyboardMarkup(rows)
+
+
+async def send_quote_with_ui(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    extra: bool = False,
+) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    lang = get_lang(update)
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    stats = ensure_stats(user_id)
+    quote_text, author = get_random_quote_for_user(user_id, lang)
+
+    if not quote_text:
+        t = TEXTS[lang]
+        kb = build_main_keyboard(lang, user_id, quote=None)
+        if update.message:
+            await update.message.reply_text(t["no_quote"], reply_markup=kb)
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(t["no_quote"], reply_markup=kb)
+        else:
+            chat_id = update.effective_chat.id
+            await context.bot.send_message(chat_id=chat_id, text=t["no_quote"], reply_markup=kb)
+        return
+
+    full_text = quote_text if not author else f"{quote_text}\n— {author}"
+    LAST_QUOTE[user_id] = full_text
+
+    img_bytes = render_quote_image(quote_text, author)
+    kb = build_main_keyboard(lang, user_id, quote=full_text)
+
+    if update.message:
+        await update.message.reply_photo(photo=img_bytes, reply_markup=kb)
+    elif update.callback_query:
+        await update.callback_query.message.reply_photo(photo=img_bytes, reply_markup=kb)
+    else:
+        chat_id = update.effective_chat.id
+        await context.bot.send_photo(chat_id=chat_id, photo=img_bytes, reply_markup=kb)
+
+    stats["quotes"] += 1
+
+    if stats["ads"] < MAX_ADS_PER_DAY:
+        await send_adsgram_ad(update, context, lang, user_id)
+
+
+# -------------------------------------------------
+# ADSGRAM
+# -------------------------------------------------
+
+async def send_adsgram_ad(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    user_id: int,
+) -> None:
+    stats = ensure_stats(user_id)
+    if stats["ads"] >= MAX_ADS_PER_DAY:
+        return
+
+    params = {
+        "tgid": user_id,
+        "blockid": ADSGRAM_BLOCK_ID,
+        "language": "tr" if lang == "tr" else "en",
+    }
+
+    try:
+        resp = requests.get("https://api.adsgram.ai/advbot", params=params, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning(f"AdsGram error: {e}")
+        t = TEXTS[lang]
+        if update.callback_query:
+            await update.callback_query.message.reply_text(t["ad_error"])
+        elif update.message:
+            await update.message.reply_text(t["ad_error"])
+        return
+
+    text_html = data.get("text_html")
+    click_url = data.get("click_url")
+    button_name = data.get("button_name")
+    image_url = data.get("image_url")
+    button_reward_name = data.get("button_reward_name")
+    reward_url = data.get("reward_url")
+
+    buttons = []
+    if button_name and click_url:
+        buttons.append([InlineKeyboardButton(button_name, url=click_url)])
+    if button_reward_name and reward_url:
+        buttons.append([InlineKeyboardButton(button_reward_name, url=reward_url)])
+
+    reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+
+    if image_url:
+        if update.callback_query:
+            await update.callback_query.message.reply_photo(
+                photo=image_url,
+                caption=text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+        elif update.message:
+            await update.message.reply_photo(
+                photo=image_url,
+                caption=text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+        else:
+            chat_id = update.effective_chat.id
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=image_url,
+                caption=text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+    else:
+        if update.callback_query:
+            await update.callback_query.message.reply_text(
+                text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+        elif update.message:
+            await update.message.reply_text(
+                text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+        else:
+            chat_id = update.effective_chat.id
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+
+    stats["ads"] += 1
+
+
+# -------------------------------------------------
+# DİL SEÇİMİ / AYARLAR
+# -------------------------------------------------
+
+async def send_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    temp_lang = get_lang(update)
+    t = TEXTS[temp_lang]
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🇹🇷 Türkçe", callback_data="set_lang:tr"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="set_lang:en"),
+            ]
+        ]
+    )
+
+    if update.message:
+        await update.message.reply_text(t["welcome_lang"], reply_markup=keyboard)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(t["welcome_lang"], reply_markup=keyboard)
+
+
+async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    lang = USER_LANG.get(user_id, get_lang(update))
+    t = TEXTS[lang]
+
+    DAILY_ENABLED.setdefault(user_id, True)
+    daily_text = t["settings_daily_on"] if DAILY_ENABLED[user_id] else t["settings_daily_off"]
+    lang_label = "Türkçe" if lang == "tr" else "English"
+
+    text = f"{t['settings_title']}\n\n{daily_text}\n{t['settings_lang']} {lang_label}"
+
+    kb = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "🔔 " + ("Bildirim Aç/Kapat" if lang == "tr" else "Toggle daily quote"),
+                    callback_data="toggle_daily",
+                )
+            ],
+            [
+                InlineKeyboardButton("🇹🇷 Türkçe", callback_data="set_lang:tr"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="set_lang:en"),
+            ],
+        ]
+    )
+
+    if update.callback_query:
+        await update.callback_query.message.reply_text(text, reply_markup=kb)
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=kb)
+
+
+# -------------------------------------------------
+# HANDLER'LAR
+# -------------------------------------------------
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    if user_id not in USER_LANG:
+        await send_language_selection(update, context)
+        return
+
+    lang = USER_LANG[user_id]
+    t = TEXTS[lang]
+    get_user_topic(user_id)
+    kb = build_main_keyboard(lang, user_id, quote=None)
+
+    if update.message:
+        await update.message.reply_text(t["start"], reply_markup=kb)
+    else:
+        chat_id = update.effective_chat.id
+        await context.bot.send_message(chat_id=chat_id, text=t["start"], reply_markup=kb)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    if user_id not in USER_LANG:
+        await send_language_selection(update, context)
+        return
+
+    lang = USER_LANG[user_id]
+    t = TEXTS[lang]
+    kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
+    await update.message.reply_text(t["help"], reply_markup=kb)
+
+
+async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    if user_id not in USER_LANG:
+        await send_language_selection(update, context)
+        return
+
+    await send_quote_with_ui(update, context, extra=False)
+
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    data = query.data
+    user = update.effective_user
+    user_id = user.id if user else 0
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    if data.startswith("set_lang:"):
+        lang_code = data.split(":", 1)[1]
+        USER_LANG[user_id] = "tr" if lang_code == "tr" else "en"
+        get_user_topic(user_id)
+        lang = USER_LANG[user_id]
+        t = TEXTS[lang]
+        kb = build_main_keyboard(lang, user_id, quote=None)
+        await query.answer()
+        await query.message.reply_text(t["start"], reply_markup=kb)
+        return
+
+    if user_id not in USER_LANG:
+        await send_language_selection(update, context)
+        await query.answer()
+        return
+
+    lang = USER_LANG[user_id]
+    t = TEXTS[lang]
+
+    if data == "new_quote":
+        await query.answer()
+        await send_quote_with_ui(update, context, extra=False)
+
+    elif data == "extra_quote":
+        await query.answer()
+        await send_quote_with_ui(update, context, extra=True)
+
+    elif data.startswith("topic:"):
+        topic_key = data.split(":", 1)[1]
+        set_user_topic(user_id, topic_key)
+        label = TOPIC_LABELS[lang].get(topic_key, topic_key)
+        msg = t["topic_changed"].format(topic=label)
+        kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
+        await query.answer()
+        await query.message.reply_text(msg, reply_markup=kb)
+
+    elif data == "fav_add":
+        await query.answer()
+        quote = LAST_QUOTE.get(user_id)
+        if quote:
+            favs = USER_FAVORITES.setdefault(user_id, [])
+            if quote not in favs:
+                favs.append(quote)
+            kb = build_main_keyboard(lang, user_id, quote=quote)
+            await query.message.reply_text(t["fav_added"], reply_markup=kb)
+
+    elif data == "fav_list":
+        await query.answer()
+        favs = USER_FAVORITES.get(user_id, [])
+        if not favs:
+            kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
+            await query.message.reply_text(t["fav_empty"], reply_markup=kb)
+        else:
+            text = t["fav_header"] + "\n\n" + "\n\n".join(f"• {q}" for q in favs[:50])
+            kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
+            await query.message.reply_text(text, reply_markup=kb)
+
+    elif data == "settings":
+        await query.answer()
+        await show_settings(update, context)
+
+    elif data == "toggle_daily":
+        DAILY_ENABLED[user_id] = not DAILY_ENABLED.get(user_id, True)
+        await query.answer()
+        await show_settings(update, context)
+
+    else:
+        await query.answer()
+
+
+async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id if user else 0
+    KNOWN_USERS.add(user_id)
+    DAILY_ENABLED.setdefault(user_id, True)
+
+    if user_id not in USER_LANG:
+        await send_language_selection(update, context)
+        return
+
+    lang = USER_LANG[user_id]
+    t = TEXTS[lang]
+    kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
+    await update.message.reply_text(t["fallback"], reply_markup=kb)
+
+
+# -------------------------------------------------
+# GÜNLÜK GÜNÜN SÖZÜ JOB (TR 10:00)
+# -------------------------------------------------
+
+async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    for user_id in list(KNOWN_USERS):
+        if not DAILY_ENABLED.get(user_id, True):
+            continue
+
+        lang = USER_LANG.get(user_id, "tr")
+        t = TEXTS[lang]
+
+        quote_text, author = get_random_quote_for_user(user_id, lang)
+        if not quote_text:
+            continue
+
+        full_text = quote_text if not author else f"{quote_text}\n— {author}"
+        kb = build_main_keyboard(lang, user_id, quote=full_text)
+        text = f"{t['daily_quote_title']}\n\n{t['quote_prefix']}\n\n{full_text}"
+
+        try:
+            await context.bot.send_message(chat_id=user_id, text=text, reply_markup=kb)
+            stats = ensure_stats(user_id)
+            stats["quotes"] += 1
+        except Exception as e:
+            logger.warning(f"Error sending daily quote to {user_id}: {e}")
+
+
+# -------------------------------------------------
+# MAIN
+# -------------------------------------------------
+
+def main() -> None:
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "BOT_TOKEN environment variable set edilmemiş. "
+            "Örn: export BOT_TOKEN='123456:ABC-DEF'"
+        )
+
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("quote", quote_command))
+
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
+
+    ist_tz = ZoneInfo("Europe/Istanbul")
+    app.job_queue.run_daily(
+        daily_quote_job,
+        time=time(hour=DAILY_QUOTE_HOUR, minute=0, tzinfo=ist_tz),
+    )
+
+    logger.info("DailyQuoteBot is running with 12 topics, sports pack and AdsGram...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
