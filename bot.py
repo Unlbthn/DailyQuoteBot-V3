@@ -400,7 +400,6 @@ Buttons:
     },
 }
 
-
 # -------------------------------------------------
 # STATE
 # -------------------------------------------------
@@ -579,8 +578,9 @@ async def send_adsgram_ad(
 
     try:
         resp = requests.get("https://api.adsgram.ai/advbot", params=params, timeout=5)
-        resp.raise_for_status()
         raw = resp.text.strip()
+        logger.info("AdsGram status=%s body=%s", resp.status_code, raw[:200])
+        resp.raise_for_status()
         if not raw:
             logger.warning("AdsGram empty response")
             return
@@ -650,7 +650,10 @@ async def send_quote_with_ui(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Seçili konuya göre söz + alt menü + altına reklam."""
+    """
+    Seçili konuya göre söz + alt menü + altına reklam.
+    NOT: Burada BAŞLIK YOK, sadece söz gösteriyoruz.
+    """
     user = update.effective_user
     user_id = user.id if user else 0
     lang = get_lang(update)
@@ -672,17 +675,17 @@ async def send_quote_with_ui(
             await context.bot.send_message(chat_id=chat_id, text=t["no_quote"], reply_markup=kb)
         return
 
+    # Sadece söz + yazar
     full_text = quote_text if not author else f"{quote_text}\n— {author}"
     LAST_QUOTE[user_id] = full_text
 
-    t = TEXTS[lang]
     if lang == "tr":
-        text = f"{t['quote_prefix']}\n\n“{quote_text}”"
+        text = f"“{quote_text}”"
         if author:
             text += f"\n— {author}"
         text += "\n\nGünün sözünü beğendiysen bize destek olmak için bir arkadaşınla paylaş. 💜"
     else:
-        text = f"{t['quote_prefix']}\n\n“{quote_text}”"
+        text = f"“{quote_text}”"
         if author:
             text += f"\n— {author}"
         text += "\n\nIf you liked today’s quote, support us by sharing it with a friend. 💜"
@@ -711,6 +714,10 @@ async def send_daily_quote_to_user(
     lang: str,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    """
+    Günün sözü butonunda ve günlük bildirimde kullanılan versiyon.
+    Burada başlık + 'Bugünün sözü:' prefix'i var.
+    """
     t = TEXTS[lang]
     quote_text, author = get_global_daily_quote(lang)
     if not quote_text:
@@ -719,7 +726,11 @@ async def send_daily_quote_to_user(
     full_text = quote_text if not author else f"{quote_text}\n— {author}"
     LAST_QUOTE[user_id] = full_text
     kb = build_main_keyboard(lang, user_id, quote=full_text)
-    text = f"{t['daily_quote_title']}\n\n{t['quote_prefix']}\n\n{full_text}"
+
+    # Başlık + prefix
+    header = t["daily_quote_title"]
+    prefix = t["quote_prefix"]
+    text = f"{header}\n\n{prefix}\n\n{full_text}"
 
     await context.bot.send_message(chat_id=user_id, text=text, reply_markup=kb)
     stats = ensure_stats(user_id)
