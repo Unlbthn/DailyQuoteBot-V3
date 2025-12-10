@@ -14,7 +14,6 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    WebAppInfo,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -31,10 +30,10 @@ from telegram.ext import (
 # -------------------------------------------------
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")          # Render env
-WEBAPP_URL = os.getenv("WEBAPP_URL")       # Opsiyonel WebApp URL
 
-ADSGRAM_BLOCK_ID = 16417                   # Senin AdsGram block ID
-MAX_ADS_PER_DAY = 10                       # Kullanıcı başı günlük reklam sınırı
+# Reklamı kapattık, AdsGram kullanılmıyor
+ADSGRAM_BLOCK_ID = 16417
+MAX_ADS_PER_DAY = 0                         # 0 => fiilen kapalı
 
 DEFAULT_TOPIC = "motivation"
 DAILY_QUOTE_HOUR = 10                      # Türkiye saatiyle 10:00
@@ -51,7 +50,6 @@ logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
 # QUOTES YAPISI
-# topic -> lang -> [{"text": "...", "author": "İsim" veya None}, ...]
 # -------------------------------------------------
 
 QUOTES = {
@@ -136,9 +134,7 @@ QUOTES = {
         ],
     },
 
-    # -------------------------------------------------
-    # SPOR – senin gönderdiğin 100 söz (TR + EN)
-    # -------------------------------------------------
+    # SPOR – 100 söz (TR + EN)
     "sport": {
         "tr": [
             {"text": "Kelebek gibi uçar, arı gibi sokarım.", "author": "Muhammed Ali"},
@@ -247,7 +243,7 @@ QUOTES = {
         ],
     },
 
-    # Kısa listeli diğer kategoriler
+    # Diğer kısa kategoriler
     "discipline": {
         "tr": [
             {"text": "Disiplin, canın istemediğinde de doğru olanı yapabilmektir.", "author": None},
@@ -355,7 +351,7 @@ TEXTS = {
         "start": (
             "✨ DailyQuoteBot'a hoş geldin!\n\n"
             "Konulara göre anlamlı sözler keşfedebilirsin.\n"
-            "Önce bir konu seç, sonra 'Yeni söz' ile devam et 👇"
+            "Bir söz almak için alttan 'Sözü değiştir' butonuna dokun.\n"
         ),
         "help": """📚 DailyQuoteBot yardım
 
@@ -363,24 +359,23 @@ TEXTS = {
 /quote - Mevcut konuya göre yeni söz
 
 Butonlarla:
-• Konu seç / değiştir
-• Yeni söz al
-• Favorilere ekle / Favorilerim
-• WhatsApp / Telegram paylaş
-• Ayarlar (dil + günün sözü bildirimi)
+• Sözü değiştir
+• Konuyu değiştir (kategoriler)
+• Favorilere ekle
+• WhatsApp / Telegram'da paylaş
+• Ayarlar (dil, favoriler, bildirimler)
 """,
         "quote_prefix": "Bugünün sözü:",
         "no_quote": "Şu an için gösterecek söz bulamadım.",
-        "ad_error": "Şu anda reklam gösterilemiyor, lütfen daha sonra tekrar dene.",
         "fallback": "DailyQuoteBot'u kullanmak için aşağıdaki butonları kullanabilirsin 👇",
-        "topic_changed": "Konu değiştirildi: {topic}. Şimdi yeni bir söz alabilirsin.",
+        "topic_menu_title": "Lütfen bir konu seç:",
         "fav_added": "Bu sözü favorilerine ekledim ⭐",
         "fav_empty": "Henüz favori söz eklemedin.",
         "fav_header": "📂 Favori sözlerin:",
         "settings_title": "⚙️ Ayarlar",
         "settings_daily_on": "Günün sözü bildirimi: Açık",
         "settings_daily_off": "Günün sözü bildirimi: Kapalı",
-        "settings_lang": "Dil / Language:",
+        "settings_lang": "Dil:",
         "daily_quote_title": "📅 Günün sözü",
     },
     "en": {
@@ -388,7 +383,7 @@ Butonlarla:
         "start": (
             "✨ Welcome to DailyQuoteBot!\n\n"
             "You can discover meaningful quotes by topics.\n"
-            "First choose a topic, then tap 'New quote' 👇"
+            "Tap 'Change quote' below to get a quote.\n"
         ),
         "help": """📚 DailyQuoteBot help
 
@@ -396,24 +391,23 @@ Butonlarla:
 /quote - New quote for current topic
 
 With the buttons you can:
-• Choose / change topic
-• Get new quotes
-• Add to favorites / view favorites
+• Change quote
+• Change topic (categories)
+• Add to favorites
 • Share via WhatsApp / Telegram
-• Open settings (language + daily quote notification)
+• Settings (language, favorites, notifications)
 """,
         "quote_prefix": "Today's quote:",
         "no_quote": "I don't have a quote to show right now.",
-        "ad_error": "Ad is not available right now, please try again later.",
         "fallback": "You can use the buttons below to use DailyQuoteBot 👇",
-        "topic_changed": "Topic changed to: {topic}. Now you can get a new quote.",
+        "topic_menu_title": "Please choose a topic:",
         "fav_added": "I added this quote to your favorites ⭐",
         "fav_empty": "You don't have any favorite quotes yet.",
         "fav_header": "📂 Your favorite quotes:",
         "settings_title": "⚙️ Settings",
         "settings_daily_on": "Daily quote notification: ON",
         "settings_daily_off": "Daily quote notification: OFF",
-        "settings_lang": "Language / Dil:",
+        "settings_lang": "Language:",
         "daily_quote_title": "📅 Daily quote",
     },
 }
@@ -555,68 +549,62 @@ def render_quote_image(quote_text: str, author: Optional[str]) -> BytesIO:
 
 
 def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) -> InlineKeyboardMarkup:
+    # Alt butonlar:
+    # Favorilere ekle / WhatsApp / Telegram / Konuyu değiştir / Sözü değiştir / Ayarlar
     t = TEXTS[lang]
-    topic_labels = TOPIC_LABELS[lang]
-    current_topic = get_user_topic(user_id)
+    quote_text = quote or LAST_QUOTE.get(user_id) or ""
+    encoded = urllib.parse.quote_plus(quote_text)
 
+    wa_url = f"https://wa.me/?text={encoded}"
+    tg_url = f"https://t.me/share/url?url=&text={encoded}"
+
+    rows = [
+        [
+            InlineKeyboardButton(
+                "⭐ " + ("Favorilere ekle" if lang == "tr" else "Add to favorites"),
+                callback_data="fav_add",
+            ),
+            InlineKeyboardButton("📤 WhatsApp", url=wa_url),
+        ],
+        [
+            InlineKeyboardButton("📤 Telegram", url=tg_url),
+            InlineKeyboardButton(
+                "🔁 " + ("Sözü değiştir" if lang == "tr" else "Change quote"),
+                callback_data="new_quote",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "🧭 " + ("Konuyu değiştir" if lang == "tr" else "Change topic"),
+                callback_data="topic_menu",
+            ),
+            InlineKeyboardButton(
+                "⚙️ " + ("Ayarlar" if lang == "tr" else "Settings"),
+                callback_data="settings",
+            ),
+        ],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def build_topic_keyboard(lang: str) -> InlineKeyboardMarkup:
+    topic_labels = TOPIC_LABELS[lang]
     topic_keys = [
         "motivation", "love", "success", "life", "selfcare", "sport",
         "discipline", "friendship", "resilience", "creativity", "work", "gratitude",
     ]
 
-    topic_buttons = []
+    buttons = []
     for key in topic_keys:
         label = topic_labels.get(key, key)
-        if key == current_topic:
-            label = f"● {label}"
-        else:
-            label = f"○ {label}"
-        topic_buttons.append(
-            InlineKeyboardButton(label, callback_data=f"topic:{key}")
-        )
+        buttons.append(InlineKeyboardButton(label, callback_data=f"topic:{key}"))
 
-    row1 = topic_buttons[:6]
-    row2 = topic_buttons[6:12]
-
-    rows = [
-        [
-            InlineKeyboardButton("🔁 " + ("Yeni söz" if lang == "tr" else "New quote"),
-                                 callback_data="new_quote"),
-            InlineKeyboardButton("🎁 " + ("Ekstra söz (reklam)" if lang == "tr" else "Extra quote (ad)"),
-                                 callback_data="extra_quote"),
-        ],
-        row1,
-        row2,
-        [
-            InlineKeyboardButton("⭐ " + ("Favorilere ekle" if lang == "tr" else "Add to favorites"),
-                                 callback_data="fav_add"),
-            InlineKeyboardButton("📂 " + ("Favorilerim" if lang == "tr" else "My favorites"),
-                                 callback_data="fav_list"),
-        ],
-    ]
-
-    if quote:
-        encoded = urllib.parse.quote_plus(quote)
-        wa_url = f"https://wa.me/?text={encoded}"
-        tg_url = f"https://t.me/share/url?url=&text={encoded}"
-        rows.append(
-            [
-                InlineKeyboardButton("📤 WhatsApp", url=wa_url),
-                InlineKeyboardButton("📤 Telegram", url=tg_url),
-            ]
-        )
-
-    settings_btn = InlineKeyboardButton("⚙️ " + ("Ayarlar" if lang == "tr" else "Settings"),
-                                        callback_data="settings")
-    if WEBAPP_URL:
-        rows.append(
-            [
-                settings_btn,
-                InlineKeyboardButton("🌐 Web App", web_app=WebAppInfo(url=WEBAPP_URL)),
-            ]
-        )
-    else:
-        rows.append([settings_btn])
+    rows = []
+    for i in range(0, len(buttons), 2):
+        row = [buttons[i]]
+        if i + 1 < len(buttons):
+            row.append(buttons[i + 1])
+        rows.append(row)
 
     return InlineKeyboardMarkup(rows)
 
@@ -624,7 +612,7 @@ def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) ->
 async def send_quote_with_ui(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    extra: bool = False,
+    extra: bool = False,  # ekstra söz/reklam artık kullanılmıyor
 ) -> None:
     user = update.effective_user
     user_id = user.id if user else 0
@@ -662,112 +650,7 @@ async def send_quote_with_ui(
         await context.bot.send_photo(chat_id=chat_id, photo=img_bytes, reply_markup=kb)
 
     stats["quotes"] += 1
-
-    if stats["ads"] < MAX_ADS_PER_DAY:
-        await send_adsgram_ad(update, context, lang, user_id)
-
-
-# -------------------------------------------------
-# ADSGRAM
-# -------------------------------------------------
-
-async def send_adsgram_ad(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    lang: str,
-    user_id: int,
-) -> None:
-    stats = ensure_stats(user_id)
-    if stats["ads"] >= MAX_ADS_PER_DAY:
-        return
-
-    params = {
-        "tgid": user_id,
-        "blockid": ADSGRAM_BLOCK_ID,
-        "language": "tr" if lang == "tr" else "en",
-    }
-
-    try:
-        resp = requests.get("https://api.adsgram.ai/advbot", params=params, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        logger.warning(f"AdsGram error: {e}")
-        t = TEXTS[lang]
-        if update.callback_query:
-            await update.callback_query.message.reply_text(t["ad_error"])
-        elif update.message:
-            await update.message.reply_text(t["ad_error"])
-        return
-
-    text_html = data.get("text_html")
-    click_url = data.get("click_url")
-    button_name = data.get("button_name")
-    image_url = data.get("image_url")
-    button_reward_name = data.get("button_reward_name")
-    reward_url = data.get("reward_url")
-
-    buttons = []
-    if button_name and click_url:
-        buttons.append([InlineKeyboardButton(button_name, url=click_url)])
-    if button_reward_name and reward_url:
-        buttons.append([InlineKeyboardButton(button_reward_name, url=reward_url)])
-
-    reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
-
-    if image_url:
-        if update.callback_query:
-            await update.callback_query.message.reply_photo(
-                photo=image_url,
-                caption=text_html,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                protect_content=True,
-            )
-        elif update.message:
-            await update.message.reply_photo(
-                photo=image_url,
-                caption=text_html,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                protect_content=True,
-            )
-        else:
-            chat_id = update.effective_chat.id
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo=image_url,
-                caption=text_html,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                protect_content=True,
-            )
-    else:
-        if update.callback_query:
-            await update.callback_query.message.reply_text(
-                text_html,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                protect_content=True,
-            )
-        elif update.message:
-            await update.message.reply_text(
-                text_html,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                protect_content=True,
-            )
-        else:
-            chat_id = update.effective_chat.id
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=text_html,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-                protect_content=True,
-            )
-
-    stats["ads"] += 1
+    # Reklam gösterimi tamamen kapalı (AdsGram çağrısı yok)
 
 
 # -------------------------------------------------
@@ -808,19 +691,29 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     daily_text = t["settings_daily_on"] if DAILY_ENABLED[user_id] else t["settings_daily_off"]
     lang_label = "Türkçe" if lang == "tr" else "English"
 
-    text = f"{t['settings_title']}\n\n{daily_text}\n{t['settings_lang']} {lang_label}"
+    text = f"{t['settings_title']}\n\n{daily_text}\n{t['settings_lang']} {lang_label}\n\n"
+    if lang == "tr":
+        text += "• Dil değiştir\n• Favorilerim\n• Bildirimleri aç/kapat"
+    else:
+        text += "• Change language\n• My favorites\n• Toggle daily quote"
 
     kb = InlineKeyboardMarkup(
         [
             [
+                InlineKeyboardButton("🇹🇷 Türkçe", callback_data="set_lang:tr"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="set_lang:en"),
+            ],
+            [
                 InlineKeyboardButton(
-                    "🔔 " + ("Bildirim Aç/Kapat" if lang == "tr" else "Toggle daily quote"),
-                    callback_data="toggle_daily",
+                    "📂 " + ("Favorilerim" if lang == "tr" else "My favorites"),
+                    callback_data="fav_list",
                 )
             ],
             [
-                InlineKeyboardButton("🇹🇷 Türkçe", callback_data="set_lang:tr"),
-                InlineKeyboardButton("🇬🇧 English", callback_data="set_lang:en"),
+                InlineKeyboardButton(
+                    "🔔 " + ("Bildirimleri aç/kapat" if lang == "tr" else "Toggle daily quote"),
+                    callback_data="toggle_daily",
+                )
             ],
         ]
     )
@@ -917,18 +810,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer()
         await send_quote_with_ui(update, context, extra=False)
 
-    elif data == "extra_quote":
+    elif data == "topic_menu":
         await query.answer()
-        await send_quote_with_ui(update, context, extra=True)
+        kb = build_topic_keyboard(lang)
+        await query.message.reply_text(t["topic_menu_title"], reply_markup=kb)
 
     elif data.startswith("topic:"):
         topic_key = data.split(":", 1)[1]
         set_user_topic(user_id, topic_key)
-        label = TOPIC_LABELS[lang].get(topic_key, topic_key)
-        msg = t["topic_changed"].format(topic=label)
-        kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
         await query.answer()
-        await query.message.reply_text(msg, reply_markup=kb)
+        # Konu değişince direkt yeni söz gönder
+        await send_quote_with_ui(update, context, extra=False)
 
     elif data == "fav_add":
         await query.answer()
@@ -1021,16 +913,13 @@ def main() -> None:
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Komut handler'ları
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("quote", quote_command))
 
-    # Callback & text handler'ları
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
 
-    # Günlük job – JobQueue varsa kur, yoksa sadece uyarı ver
     ist_tz = ZoneInfo("Europe/Istanbul")
     jq = app.job_queue
     if jq is not None:
@@ -1038,16 +927,16 @@ def main() -> None:
             daily_quote_job,
             time=time(hour=DAILY_QUOTE_HOUR, minute=0, tzinfo=ist_tz),
         )
-        logger.info(
-            "JobQueue aktif, günlük bildirim planlandı (TR %02d:00).",
-            DAILY_QUOTE_HOUR,
-        )
+        logger.info("JobQueue aktif, günlük bildirim planlandı (TR %02d:00).", DAILY_QUOTE_HOUR)
     else:
         logger.warning(
             "JobQueue mevcut değil. Günlük bildirim çalışmayacak. "
             "requirements.txt içine python-telegram-bot[job-queue] ekleyebilirsin."
         )
 
-    logger.info("DailyQuoteBot 12 konu, spor pack ve AdsGram ile çalışıyor...")
+    logger.info("DailyQuoteBot sade arayüzle çalışıyor...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
+
+if __name__ == "__main__":
+    main()
