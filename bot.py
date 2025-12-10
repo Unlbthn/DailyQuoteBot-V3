@@ -2,14 +2,11 @@ import logging
 import os
 import random
 from datetime import date, time
-from io import BytesIO
 from typing import Optional
 from zoneinfo import ZoneInfo
 import urllib.parse
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
-
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -31,9 +28,11 @@ from telegram.ext import (
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# AdsGram ayarları
 ADSGRAM_BLOCK_ID = 16417
 MAX_ADS_PER_DAY = 10  # kullanıcı başı günlük max reklam
 
+# Varsayılan konu ve günlük bildirim saati
 DEFAULT_TOPIC = "motivation"
 DAILY_QUOTE_HOUR = 10  # Türkiye saati ile 10:00
 
@@ -51,6 +50,7 @@ logger = logging.getLogger(__name__)
 # QUOTES
 # -------------------------------------------------
 
+# QUOTES[topic][lang] -> list of {"text": "...", "author": "...." or None}
 QUOTES = {
     "motivation": {
         "tr": [
@@ -132,7 +132,7 @@ QUOTES = {
             {"text": "Self-compassion is your strongest healing tool.", "author": None},
         ],
     },
-    # SPOR 100 söz (TR + EN)
+    # Spor TR+EN (1–100)
     "sport": {
         "tr": [
             {"text": "Kelebek gibi uçar, arı gibi sokarım.", "author": "Muhammed Ali"},
@@ -465,93 +465,8 @@ def get_random_quote_for_user(user_id: int, lang: str) -> tuple[str, Optional[st
     return item["text"], item.get("author")
 
 
-def render_quote_image(quote_text: str, author: Optional[str]) -> BytesIO:
-    width, height = 800, 800
-    bg_color = (0, 0, 0)
-    img = Image.new("RGB", (width, height), bg_color)
-    draw = ImageDraw.Draw(img)
-
-    def measure(text: str, font: ImageFont.ImageFont):
-        # Pillow 10+ uyumlu ölçüm
-        try:
-            bbox = draw.textbbox((0, 0), text, font=font)
-            return bbox[2] - bbox[0], bbox[3] - bbox[1]
-        except Exception:
-            if hasattr(font, "getsize"):
-                return font.getsize(text)
-            return len(text) * 10, 20
-
-    center = (width // 2, height // 2 - 60)
-    radius = 260
-    gold = (212, 175, 55)
-    draw.ellipse(
-        [
-            (center[0] - radius, center[1] - radius),
-            (center[0] + radius, center[1] + radius),
-        ],
-        outline=gold,
-        width=4,
-    )
-
-    mark_text = "❝"
-    try:
-        font_mark = ImageFont.truetype("arial.ttf", 80)
-    except Exception:
-        font_mark = ImageFont.load_default()
-    draw.text((width // 2 - 25, 80), mark_text, fill=gold, font=font_mark)
-
-    try:
-        font_quote = ImageFont.truetype("arial.ttf", 32)
-    except Exception:
-        font_quote = ImageFont.load_default()
-    try:
-        font_author = ImageFont.truetype("arial.ttf", 26)
-    except Exception:
-        font_author = ImageFont.load_default()
-
-    max_width = width - 160
-    words = quote_text.split()
-    lines = []
-    current = ""
-    for w in words:
-        test = (current + " " + w).strip()
-        w_width, _ = measure(test, font_quote)
-        if w_width <= max_width:
-            current = test
-        else:
-            if current:
-                lines.append(current)
-            current = w
-    if current:
-        lines.append(current)
-
-    total_text_height = len(lines) * 40
-    used_height = total_text_height
-    if author:
-        used_height += 40
-
-    start_y = center[1] - used_height // 2
-
-    for i, line in enumerate(lines):
-        w_width, _ = measure(line, font_quote)
-        x = (width - w_width) // 2
-        y = start_y + i * 40
-        draw.text((x, y), line, fill=(229, 229, 229), font=font_quote)
-
-    if author:
-        author_text = f"— {author}"
-        aw, _ = measure(author_text, font_author)
-        ax = (width - aw) // 2
-        ay = start_y + total_text_height + 10
-        draw.text((ax, ay), author_text, fill=gold, font=font_author)
-
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    return buffer
-
-
 def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) -> InlineKeyboardMarkup:
+    # share için son gösterilen sözü kullan
     quote_text = quote or LAST_QUOTE.get(user_id) or ""
     encoded = urllib.parse.quote_plus(quote_text)
 
@@ -608,17 +523,17 @@ def build_topic_keyboard(lang: str) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(rows)
 
-
 # -------------------------------------------------
 # ADSGRAM
 # -------------------------------------------------
 
 async def send_adsgram_ad(
-    update: Update,
+    update: Optional[Update],
     context: ContextTypes.DEFAULT_TYPE,
     lang: str,
     user_id: int,
 ) -> None:
+    """Sözden sonra altına reklam mesajı atar."""
     stats = ensure_stats(user_id)
     if stats["ads"] >= MAX_ADS_PER_DAY:
         return
@@ -651,7 +566,11 @@ async def send_adsgram_ad(
         buttons.append([InlineKeyboardButton(button_reward_name, url=reward_url)])
 
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
-    chat_id = update.effective_chat.id if update.effective_chat else user_id
+
+    if update and update.effective_chat:
+        chat_id = update.effective_chat.id
+    else:
+        chat_id = user_id
 
     if image_url:
         await context.bot.send_photo(
@@ -671,15 +590,15 @@ async def send_adsgram_ad(
 
     stats["ads"] += 1
 
-
 # -------------------------------------------------
-# MAIN SEND QUOTE
+# MAIN SEND QUOTE (METİN KARTI)
 # -------------------------------------------------
 
 async def send_quote_with_ui(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    """Metin tabanlı premium kart + altına reklam."""
     user = update.effective_user
     user_id = user.id if user else 0
     lang = get_lang(update)
@@ -704,23 +623,40 @@ async def send_quote_with_ui(
     full_text = quote_text if not author else f"{quote_text}\n— {author}"
     LAST_QUOTE[user_id] = full_text
 
-    img_bytes = render_quote_image(quote_text, author)
+    if lang == "tr":
+        text = (
+            "Günün Sözü\n"
+            "________________\n\n"
+            f"“{quote_text}”\n"
+        )
+        if author:
+            text += f"\n— {author}\n"
+        text += "\nGünün sözünü beğendiysen bize destek olmak için bir arkadaşınla paylaş. 💜"
+    else:
+        text = (
+            "Quote of the Day\n"
+            "________________\n\n"
+            f"“{quote_text}”\n"
+        )
+        if author:
+            text += f"\n— {author}\n"
+        text += "\nIf you liked today’s quote, support us by sharing it with a friend. 💜"
+
     kb = build_main_keyboard(lang, user_id, quote=full_text)
 
     if update.message:
-        await update.message.reply_photo(photo=img_bytes, reply_markup=kb)
+        await update.message.reply_text(text, reply_markup=kb)
     elif update.callback_query:
-        await update.callback_query.message.reply_photo(photo=img_bytes, reply_markup=kb)
+        await update.callback_query.message.reply_text(text, reply_markup=kb)
     else:
         chat_id = update.effective_chat.id
-        await context.bot.send_photo(chat_id=chat_id, photo=img_bytes, reply_markup=kb)
+        await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)
 
     stats["quotes"] += 1
 
-    # sözden sonra reklam
+    # Hemen altına reklam
     if stats["ads"] < MAX_ADS_PER_DAY:
         await send_adsgram_ad(update, context, lang, user_id)
-
 
 # -------------------------------------------------
 # LANGUAGE SELECTION / SETTINGS
@@ -792,7 +728,6 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     elif update.message:
         await update.message.reply_text(text, reply_markup=kb)
 
-
 # -------------------------------------------------
 # HANDLERS
 # -------------------------------------------------
@@ -803,7 +738,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
-    # İlk kez: dil seçimi
+    # İlk kez -> dil seçimi
     if user_id not in USER_LANG:
         await send_language_selection(update, context)
         return
@@ -818,7 +753,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
         await context.bot.send_message(chat_id=chat_id, text=welcome)
 
-    # Dili biliniyorsa doğrudan söz + menü + reklam
+    # Dil biliniyorsa direkt söz + menü + reklam
     await send_quote_with_ui(update, context)
 
 
@@ -859,7 +794,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
-    # Dil seçimi -> konu menüsü
+    # Dil seçimi
     if data.startswith("set_lang:"):
         lang_code = data.split(":", 1)[1]
         USER_LANG[user_id] = "tr" if lang_code == "tr" else "en"
@@ -939,7 +874,7 @@ async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
-    # Henüz dil seçilmemişse: sadece /start bilgisini ver
+    # Henüz dil seçili değilse: /start bilgisi
     if user_id not in USER_LANG:
         guess_lang = get_lang(update)
         if guess_lang == "tr":
@@ -949,18 +884,18 @@ async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(msg)
         return
 
-    # Dil seçildiyse, klasik fallback
+    # Dil seçildiyse klasik fallback
     lang = USER_LANG[user_id]
     t = TEXTS[lang]
     kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
     await update.message.reply_text(t["fallback"], reply_markup=kb)
-
 
 # -------------------------------------------------
 # DAILY JOB
 # -------------------------------------------------
 
 async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Her gün TR 10:00'da çalışan job."""
     for user_id in list(KNOWN_USERS):
         if not DAILY_ENABLED.get(user_id, True):
             continue
@@ -982,12 +917,9 @@ async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             stats = ensure_stats(user_id)
             stats["quotes"] += 1
             if stats["ads"] < MAX_ADS_PER_DAY:
-                dummy_update = Update(update_id=0)
-                dummy_update.effective_chat = type("C", (), {"id": user_id})()
-                await send_adsgram_ad(dummy_update, context, lang, user_id)
+                await send_adsgram_ad(None, context, lang, user_id)
         except Exception as e:
             logger.warning(f"Error sending daily quote to {user_id}: {e}")
-
 
 # -------------------------------------------------
 # MAIN
@@ -1009,6 +941,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
 
+    # Günlük job (python-telegram-bot[job-queue] kuruluysa çalışır)
     ist_tz = ZoneInfo("Europe/Istanbul")
     jq = app.job_queue
     if jq is not None:
