@@ -355,18 +355,15 @@ TEXTS = {
 
 Butonlarla:
 • Sözü değiştir
+• Günün sözünü gör
 • Konuyu değiştir (kategoriler)
-• Favorilere ekle
 • WhatsApp / Telegram'da paylaş
-• Ayarlar (dil, favoriler, bildirimler)
+• Ayarlar (dil, bildirimler)
 """,
         "quote_prefix": "Bugünün sözü:",
         "no_quote": "Şu an için gösterecek söz bulamadım.",
         "fallback": "Quote Masters'ı kullanmak için aşağıdaki butonları kullanabilirsin 👇",
         "topic_menu_title": "Lütfen bir konu seç:",
-        "fav_added": "Bu sözü favorilerine ekledim ⭐",
-        "fav_empty": "Henüz favori söz eklemedin.",
-        "fav_header": "📂 Favori sözlerin:",
         "settings_title": "⚙️ Ayarlar",
         "settings_daily_on": "Günün sözü bildirimi: Açık",
         "settings_daily_off": "Günün sözü bildirimi: Kapalı",
@@ -384,20 +381,17 @@ Butonlarla:
 /start - Welcome & menu
 /quote - New quote for current topic
 
-With the buttons you can:
+Buttons:
 • Change quote
+• Show today's quote
 • Change topic (categories)
-• Add to favorites
 • Share via WhatsApp / Telegram
-• Settings (language, favorites, notifications)
+• Settings (language, notifications)
 """,
         "quote_prefix": "Today's quote:",
         "no_quote": "I don't have a quote to show right now.",
         "fallback": "You can use the buttons below to use Quote Masters 👇",
         "topic_menu_title": "Please choose a topic:",
-        "fav_added": "I added this quote to your favorites ⭐",
-        "fav_empty": "You don't have any favorite quotes yet.",
-        "fav_header": "📂 Your favorite quotes:",
         "settings_title": "⚙️ Settings",
         "settings_daily_on": "Daily quote notification: ON",
         "settings_daily_off": "Daily quote notification: OFF",
@@ -413,7 +407,6 @@ With the buttons you can:
 USER_LANG = {}       # {user_id: 'tr'/'en'}
 USER_TOPIC = {}      # {user_id: topic}
 USER_STATS = {}      # {user_id: {day, quotes, ads}}
-USER_FAVORITES = {}  # {user_id: [full_quote,...]}
 LAST_QUOTE = {}      # {user_id: full_quote}
 DAILY_ENABLED = {}   # {user_id: bool}
 KNOWN_USERS = set()  # {user_id}
@@ -465,8 +458,33 @@ def get_random_quote_for_user(user_id: int, lang: str) -> tuple[str, Optional[st
     return item["text"], item.get("author")
 
 
+def get_global_daily_quote(lang: str) -> tuple[str, Optional[str]]:
+    """
+    Bugünün tarihi üzerinden seed alarak:
+    - Tüm konulardan
+    - Seçilen dilde
+    tek bir söz seçer.
+    Aynı gün için her yerde aynı sonuç gelir.
+    """
+    combos = []
+    for topic, langs in QUOTES.items():
+        if lang in langs:
+            for idx, _ in enumerate(langs[lang]):
+                combos.append((topic, idx))
+    if not combos:
+        return "", None
+
+    seed = int(date.today().strftime("%Y%m%d"))
+    # Diller çakışmasın diye lang'e göre ufak offset
+    if lang == "en":
+        seed += 999
+    rnd = random.Random(seed)
+    topic, idx = rnd.choice(combos)
+    item = QUOTES[topic][lang][idx]
+    return item["text"], item.get("author")
+
+
 def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) -> InlineKeyboardMarkup:
-    # share için son gösterilen sözü kullan
     quote_text = quote or LAST_QUOTE.get(user_id) or ""
     encoded = urllib.parse.quote_plus(quote_text)
 
@@ -476,8 +494,8 @@ def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) ->
     rows = [
         [
             InlineKeyboardButton(
-                "⭐ " + ("Favorilere ekle" if lang == "tr" else "Add to favorites"),
-                callback_data="fav_add",
+                "📅 Günün Sözü" if lang == "tr" else "📅 Daily quote",
+                callback_data="daily_now",
             ),
             InlineKeyboardButton("📤 WhatsApp", url=wa_url),
         ],
@@ -547,9 +565,21 @@ async def send_adsgram_ad(
     try:
         resp = requests.get("https://api.adsgram.ai/advbot", params=params, timeout=5)
         resp.raise_for_status()
-        data = resp.json()
+        text_raw = resp.text.strip()
+        if not text_raw:
+            logger.warning("AdsGram empty response")
+            return
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.warning("AdsGram JSON parse error: %s", text_raw[:200])
+            return
     except Exception as e:
         logger.warning(f"AdsGram error: {e}")
+        return
+
+    if not isinstance(data, dict):
+        logger.warning("AdsGram invalid JSON structure: %r", data)
         return
 
     text_html = data.get("text_html")
@@ -558,6 +588,10 @@ async def send_adsgram_ad(
     image_url = data.get("image_url")
     button_reward_name = data.get("button_reward_name")
     reward_url = data.get("reward_url")
+
+    if not text_html:
+        logger.warning("AdsGram missing text_html")
+        return
 
     buttons = []
     if button_name and click_url:
@@ -572,33 +606,35 @@ async def send_adsgram_ad(
     else:
         chat_id = user_id
 
-    if image_url:
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=image_url,
-            caption=text_html,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=text_html,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-        )
-
-    stats["ads"] += 1
+    try:
+        if image_url:
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=image_url,
+                caption=text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text_html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+        stats["ads"] += 1
+    except Exception as e:
+        logger.warning("Error sending AdsGram message: %s", e)
 
 # -------------------------------------------------
-# MAIN SEND QUOTE (METİN KARTI)
+# MAIN QUOTE SENDER (TOPIC-BASED)
 # -------------------------------------------------
 
 async def send_quote_with_ui(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Metin tabanlı premium kart + altına reklam."""
+    """Seçili konuya göre söz + alt menü + altına reklam."""
     user = update.effective_user
     user_id = user.id if user else 0
     lang = get_lang(update)
@@ -654,9 +690,45 @@ async def send_quote_with_ui(
 
     stats["quotes"] += 1
 
-    # Hemen altına reklam
     if stats["ads"] < MAX_ADS_PER_DAY:
         await send_adsgram_ad(update, context, lang, user_id)
+
+# -------------------------------------------------
+# DAILY QUOTE (GLOBAL)
+# -------------------------------------------------
+
+async def send_daily_quote_to_user(
+    user_id: int,
+    lang: str,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    t = TEXTS[lang]
+    quote_text, author = get_global_daily_quote(lang)
+    if not quote_text:
+        return
+
+    full_text = quote_text if not author else f"{quote_text}\n— {author}"
+    LAST_QUOTE[user_id] = full_text
+    kb = build_main_keyboard(lang, user_id, quote=full_text)
+    text = f"{t['daily_quote_title']}\n\n{t['quote_prefix']}\n\n{full_text}"
+
+    await context.bot.send_message(chat_id=user_id, text=text, reply_markup=kb)
+    stats = ensure_stats(user_id)
+    stats["quotes"] += 1
+    if stats["ads"] < MAX_ADS_PER_DAY:
+        await send_adsgram_ad(None, context, lang, user_id)
+
+
+async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Her gün TR 10:00'da çağrılır: herkes için tek gün sözü."""
+    for user_id in list(KNOWN_USERS):
+        if not DAILY_ENABLED.get(user_id, True):
+            continue
+        lang = USER_LANG.get(user_id, "tr")
+        try:
+            await send_daily_quote_to_user(user_id, lang, context)
+        except Exception as e:
+            logger.warning(f"Error sending daily quote to {user_id}: {e}")
 
 # -------------------------------------------------
 # LANGUAGE SELECTION / SETTINGS
@@ -698,21 +770,15 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     text = f"{t['settings_title']}\n\n{daily_text}\n{t['settings_lang']} {lang_label}\n\n"
     if lang == "tr":
-        text += "• Dil değiştir\n• Favorilerim\n• Bildirimleri aç/kapat"
+        text += "• Dil değiştir\n• Bildirimleri aç/kapat"
     else:
-        text += "• Change language\n• My favorites\n• Toggle daily quote"
+        text += "• Change language\n• Toggle daily quote"
 
     kb = InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton("🇹🇷 Türkçe", callback_data="set_lang:tr"),
                 InlineKeyboardButton("🇬🇧 English", callback_data="set_lang:en"),
-            ],
-            [
-                InlineKeyboardButton(
-                    "📂 " + ("Favorilerim" if lang == "tr" else "My favorites"),
-                    callback_data="fav_list",
-                )
             ],
             [
                 InlineKeyboardButton(
@@ -733,28 +799,15 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # -------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Her /start çağrısında dil seçimi açılır.
+    """
     user = update.effective_user
     user_id = user.id if user else 0
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
-    # İlk kez -> dil seçimi
-    if user_id not in USER_LANG:
-        await send_language_selection(update, context)
-        return
-
-    lang = USER_LANG[user_id]
-    t = TEXTS[lang]
-
-    welcome = t["start"]
-    if update.message:
-        await update.message.reply_text(welcome)
-    else:
-        chat_id = update.effective_chat.id
-        await context.bot.send_message(chat_id=chat_id, text=welcome)
-
-    # Dil biliniyorsa direkt söz + menü + reklam
-    await send_quote_with_ui(update, context)
+    await send_language_selection(update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -833,27 +886,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer()
         await send_quote_with_ui(update, context)
 
-    elif data == "fav_add":
-        await query.answer()
-        quote = LAST_QUOTE.get(user_id)
-        if quote:
-            favs = USER_FAVORITES.setdefault(user_id, [])
-            if quote not in favs:
-                favs.append(quote)
-            kb = build_main_keyboard(lang, user_id, quote=quote)
-            await query.message.reply_text(t["fav_added"], reply_markup=kb)
-
-    elif data == "fav_list":
-        await query.answer()
-        favs = USER_FAVORITES.get(user_id, [])
-        if not favs:
-            kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
-            await query.message.reply_text(t["fav_empty"], reply_markup=kb)
-        else:
-            text = t["fav_header"] + "\n\n" + "\n\n".join(f"• {q}" for q in favs[:50])
-            kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
-            await query.message.reply_text(text, reply_markup=kb)
-
     elif data == "settings":
         await query.answer()
         await show_settings(update, context)
@@ -863,18 +895,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer()
         await show_settings(update, context)
 
+    elif data == "daily_now":
+        await query.answer()
+        await send_daily_quote_to_user(user_id, lang, context)
+
     else:
         await query.answer()
 
 
 async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Kullanıcı /start demeden yazarsa burada yakalıyoruz."""
+    """Kullanıcı /start demeden yazarsa burada yakalanır."""
     user = update.effective_user
     user_id = user.id if user else 0
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
-    # Henüz dil seçili değilse: /start bilgisi
     if user_id not in USER_LANG:
         guess_lang = get_lang(update)
         if guess_lang == "tr":
@@ -884,42 +919,10 @@ async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(msg)
         return
 
-    # Dil seçildiyse klasik fallback
     lang = USER_LANG[user_id]
     t = TEXTS[lang]
     kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
     await update.message.reply_text(t["fallback"], reply_markup=kb)
-
-# -------------------------------------------------
-# DAILY JOB
-# -------------------------------------------------
-
-async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Her gün TR 10:00'da çalışan job."""
-    for user_id in list(KNOWN_USERS):
-        if not DAILY_ENABLED.get(user_id, True):
-            continue
-
-        lang = USER_LANG.get(user_id, "tr")
-        t = TEXTS[lang]
-
-        quote_text, author = get_random_quote_for_user(user_id, lang)
-        if not quote_text:
-            continue
-
-        full_text = quote_text if not author else f"{quote_text}\n— {author}"
-        LAST_QUOTE[user_id] = full_text
-        kb = build_main_keyboard(lang, user_id, quote=full_text)
-        text = f"{t['daily_quote_title']}\n\n{t['quote_prefix']}\n\n{full_text}"
-
-        try:
-            await context.bot.send_message(chat_id=user_id, text=text, reply_markup=kb)
-            stats = ensure_stats(user_id)
-            stats["quotes"] += 1
-            if stats["ads"] < MAX_ADS_PER_DAY:
-                await send_adsgram_ad(None, context, lang, user_id)
-        except Exception as e:
-            logger.warning(f"Error sending daily quote to {user_id}: {e}")
 
 # -------------------------------------------------
 # MAIN
@@ -941,7 +944,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback_text))
 
-    # Günlük job (python-telegram-bot[job-queue] kuruluysa çalışır)
+    # Günlük job
     ist_tz = ZoneInfo("Europe/Istanbul")
     jq = app.job_queue
     if jq is not None:
