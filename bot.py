@@ -29,13 +29,13 @@ from telegram.ext import (
 # CONFIG
 # -------------------------------------------------
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")          # Render env
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-ADSGRAM_BLOCK_ID = 16417                   # AdsGram platform block id
-MAX_ADS_PER_DAY = 10                       # Kullanıcı başı günlük max reklam
+ADSGRAM_BLOCK_ID = 16417
+MAX_ADS_PER_DAY = 10  # kullanıcı başı günlük max reklam
 
 DEFAULT_TOPIC = "motivation"
-DAILY_QUOTE_HOUR = 10                      # Türkiye saatiyle 10:00
+DAILY_QUOTE_HOUR = 10  # Türkiye saati ile 10:00
 
 # -------------------------------------------------
 # LOGGING
@@ -48,7 +48,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
-# QUOTES YAPISI
+# QUOTES
 # -------------------------------------------------
 
 QUOTES = {
@@ -132,6 +132,7 @@ QUOTES = {
             {"text": "Self-compassion is your strongest healing tool.", "author": None},
         ],
     },
+    # SPOR 100 söz (TR + EN)
     "sport": {
         "tr": [
             {"text": "Kelebek gibi uçar, arı gibi sokarım.", "author": "Muhammed Ali"},
@@ -337,7 +338,7 @@ TOPIC_LABELS = {
 }
 
 # -------------------------------------------------
-# METİN DİZİLERİ
+# TEXTS
 # -------------------------------------------------
 
 TEXTS = {
@@ -409,17 +410,16 @@ With the buttons you can:
 # STATE
 # -------------------------------------------------
 
-USER_LANG = {}          # {user_id: 'tr' / 'en'}
-USER_TOPIC = {}         # {user_id: topic_key}
-USER_STATS = {}         # {user_id: {"day": date, "quotes": int, "ads": int}}
-USER_FAVORITES = {}     # {user_id: [full_quote_str, ...]}
-LAST_QUOTE = {}         # {user_id: full_quote_str}
-DAILY_ENABLED = {}      # {user_id: bool}
-KNOWN_USERS = set()     # {user_id}
-
+USER_LANG = {}       # {user_id: 'tr'/'en'}
+USER_TOPIC = {}      # {user_id: topic}
+USER_STATS = {}      # {user_id: {day, quotes, ads}}
+USER_FAVORITES = {}  # {user_id: [full_quote,...]}
+LAST_QUOTE = {}      # {user_id: full_quote}
+DAILY_ENABLED = {}   # {user_id: bool}
+KNOWN_USERS = set()  # {user_id}
 
 # -------------------------------------------------
-# YARDIMCI FONKSİYONLAR
+# HELPERS
 # -------------------------------------------------
 
 def get_lang(update: Update) -> str:
@@ -471,6 +471,16 @@ def render_quote_image(quote_text: str, author: Optional[str]) -> BytesIO:
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
+    def measure(text: str, font: ImageFont.ImageFont):
+        # Pillow 10+ uyumlu ölçüm
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+        except Exception:
+            if hasattr(font, "getsize"):
+                return font.getsize(text)
+            return len(text) * 10, 20
+
     center = (width // 2, height // 2 - 60)
     radius = 260
     gold = (212, 175, 55)
@@ -505,7 +515,7 @@ def render_quote_image(quote_text: str, author: Optional[str]) -> BytesIO:
     current = ""
     for w in words:
         test = (current + " " + w).strip()
-        w_width, _ = draw.textsize(test, font=font_quote)
+        w_width, _ = measure(test, font_quote)
         if w_width <= max_width:
             current = test
         else:
@@ -523,14 +533,14 @@ def render_quote_image(quote_text: str, author: Optional[str]) -> BytesIO:
     start_y = center[1] - used_height // 2
 
     for i, line in enumerate(lines):
-        w_width, _ = draw.textsize(line, font=font_quote)
+        w_width, _ = measure(line, font_quote)
         x = (width - w_width) // 2
         y = start_y + i * 40
         draw.text((x, y), line, fill=(229, 229, 229), font=font_quote)
 
     if author:
         author_text = f"— {author}"
-        aw, _ = draw.textsize(author_text, font=font_author)
+        aw, _ = measure(author_text, font_author)
         ax = (width - aw) // 2
         ay = start_y + total_text_height + 10
         draw.text((ax, ay), author_text, fill=gold, font=font_author)
@@ -641,8 +651,6 @@ async def send_adsgram_ad(
         buttons.append([InlineKeyboardButton(button_reward_name, url=reward_url)])
 
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
-
-    # Reklamı, söz + menü mesajından SONRA gönderiyoruz ki aşağıda görünsün
     chat_id = update.effective_chat.id if update.effective_chat else user_id
 
     if image_url:
@@ -665,7 +673,7 @@ async def send_adsgram_ad(
 
 
 # -------------------------------------------------
-# ANA MESAJ GÖNDERİCİ
+# MAIN SEND QUOTE
 # -------------------------------------------------
 
 async def send_quote_with_ui(
@@ -709,13 +717,13 @@ async def send_quote_with_ui(
 
     stats["quotes"] += 1
 
-    # Her sözden sonra (günlük limit içinde) reklam göster
+    # sözden sonra reklam
     if stats["ads"] < MAX_ADS_PER_DAY:
         await send_adsgram_ad(update, context, lang, user_id)
 
 
 # -------------------------------------------------
-# DİL SEÇİMİ / AYARLAR
+# LANGUAGE SELECTION / SETTINGS
 # -------------------------------------------------
 
 async def send_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -786,7 +794,7 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 # -------------------------------------------------
-# HANDLER'LAR
+# HANDLERS
 # -------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -795,6 +803,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
+    # İlk kez: dil seçimi
     if user_id not in USER_LANG:
         await send_language_selection(update, context)
         return
@@ -802,7 +811,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = USER_LANG[user_id]
     t = TEXTS[lang]
 
-    # Quote Masters'a hoş geldin mesajı
     welcome = t["start"]
     if update.message:
         await update.message.reply_text(welcome)
@@ -810,7 +818,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
         await context.bot.send_message(chat_id=chat_id, text=welcome)
 
-    # Sonrasında direkt yeni söz + menü + reklam
+    # Dili biliniyorsa doğrudan söz + menü + reklam
     await send_quote_with_ui(update, context)
 
 
@@ -851,7 +859,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
-    # Dil seçildikten sonra: konu menüsü aç
+    # Dil seçimi -> konu menüsü
     if data.startswith("set_lang:"):
         lang_code = data.split(":", 1)[1]
         USER_LANG[user_id] = "tr" if lang_code == "tr" else "en"
@@ -888,7 +896,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         topic_key = data.split(":", 1)[1]
         set_user_topic(user_id, topic_key)
         await query.answer()
-        # Konu seçilince direkt söz + reklam + menü
         await send_quote_with_ui(update, context)
 
     elif data == "fav_add":
@@ -926,15 +933,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Kullanıcı /start demeden yazarsa burada yakalıyoruz."""
     user = update.effective_user
     user_id = user.id if user else 0
     KNOWN_USERS.add(user_id)
     DAILY_ENABLED.setdefault(user_id, True)
 
+    # Henüz dil seçilmemişse: sadece /start bilgisini ver
     if user_id not in USER_LANG:
-        await send_language_selection(update, context)
+        guess_lang = get_lang(update)
+        if guess_lang == "tr":
+            msg = "✨ Quote Masters'a hoş geldin!\n\nBaşlamak için /start yaz."
+        else:
+            msg = "✨ Welcome to Quote Masters!\n\nType /start to begin."
+        await update.message.reply_text(msg)
         return
 
+    # Dil seçildiyse, klasik fallback
     lang = USER_LANG[user_id]
     t = TEXTS[lang]
     kb = build_main_keyboard(lang, user_id, quote=LAST_QUOTE.get(user_id))
@@ -942,7 +957,7 @@ async def fallback_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 # -------------------------------------------------
-# GÜNLÜK GÜNÜN SÖZÜ JOB (TR 10:00)
+# DAILY JOB
 # -------------------------------------------------
 
 async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -967,7 +982,6 @@ async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             stats = ensure_stats(user_id)
             stats["quotes"] += 1
             if stats["ads"] < MAX_ADS_PER_DAY:
-                # Günün sözüyle birlikte reklam da gönder
                 dummy_update = Update(update_id=0)
                 dummy_update.effective_chat = type("C", (), {"id": user_id})()
                 await send_adsgram_ad(dummy_update, context, lang, user_id)
