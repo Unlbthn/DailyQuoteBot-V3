@@ -132,7 +132,7 @@ QUOTES = {
             {"text": "Self-compassion is your strongest healing tool.", "author": None},
         ],
     },
-    # Spor TR+EN (1–100)
+    # Spor TR+EN
     "sport": {
         "tr": [
             {"text": "Kelebek gibi uçar, arı gibi sokarım.", "author": "Muhammed Ali"},
@@ -364,7 +364,7 @@ Butonlarla:
         "no_quote": "Şu an için gösterecek söz bulamadım.",
         "fallback": "Quote Masters'ı kullanmak için aşağıdaki butonları kullanabilirsin 👇",
         "topic_menu_title": "Lütfen bir konu seç:",
-        "settings_title": "⚙️ Ayarlar",
+        "settings_title": ⚙️ Ayarlar",
         "settings_daily_on": "Günün sözü bildirimi: Açık",
         "settings_daily_off": "Günün sözü bildirimi: Kapalı",
         "settings_lang": "Dil:",
@@ -475,7 +475,6 @@ def get_global_daily_quote(lang: str) -> tuple[str, Optional[str]]:
         return "", None
 
     seed = int(date.today().strftime("%Y%m%d"))
-    # Diller çakışmasın diye lang'e göre ufak offset
     if lang == "en":
         seed += 999
     rnd = random.Random(seed)
@@ -486,7 +485,22 @@ def get_global_daily_quote(lang: str) -> tuple[str, Optional[str]]:
 
 def build_main_keyboard(lang: str, user_id: int, quote: Optional[str] = None) -> InlineKeyboardMarkup:
     quote_text = quote or LAST_QUOTE.get(user_id) or ""
-    encoded = urllib.parse.quote_plus(quote_text)
+    if lang == "tr":
+        share_body = (
+            "Bugünün sözü:\n\n"
+            f"{quote_text}\n\n"
+            "— Quote Masters\n"
+            "Türkçe & İngilizce anlamlı sözler için: https://t.me/QuoteMastersBot"
+        )
+    else:
+        share_body = (
+            "Today's quote:\n\n"
+            f"{quote_text}\n\n"
+            "— Quote Masters\n"
+            "Discover meaningful quotes in Turkish & English: https://t.me/QuoteMastersBot"
+        )
+
+    encoded = urllib.parse.quote_plus(share_body)
 
     wa_url = f"https://wa.me/?text={encoded}"
     tg_url = f"https://t.me/share/url?url=&text={encoded}"
@@ -565,14 +579,14 @@ async def send_adsgram_ad(
     try:
         resp = requests.get("https://api.adsgram.ai/advbot", params=params, timeout=5)
         resp.raise_for_status()
-        text_raw = resp.text.strip()
-        if not text_raw:
+        raw = resp.text.strip()
+        if not raw:
             logger.warning("AdsGram empty response")
             return
         try:
             data = resp.json()
         except ValueError:
-            logger.warning("AdsGram JSON parse error: %s", text_raw[:200])
+            logger.warning("AdsGram JSON parse error: %s", raw[:200])
             return
     except Exception as e:
         logger.warning(f"AdsGram error: {e}")
@@ -582,15 +596,16 @@ async def send_adsgram_ad(
         logger.warning("AdsGram invalid JSON structure: %r", data)
         return
 
-    text_html = data.get("text_html")
-    click_url = data.get("click_url")
-    button_name = data.get("button_name")
+    # Daha toleranslı alan okuma
+    text_html = data.get("text_html") or data.get("text") or ""
+    click_url = data.get("click_url") or data.get("url")
+    button_name = data.get("button_name") or data.get("button_text")
     image_url = data.get("image_url")
     button_reward_name = data.get("button_reward_name")
     reward_url = data.get("reward_url")
 
     if not text_html:
-        logger.warning("AdsGram missing text_html")
+        logger.warning("AdsGram missing text/text_html")
         return
 
     buttons = []
@@ -659,24 +674,17 @@ async def send_quote_with_ui(
     full_text = quote_text if not author else f"{quote_text}\n— {author}"
     LAST_QUOTE[user_id] = full_text
 
+    t = TEXTS[lang]
     if lang == "tr":
-        text = (
-            "Günün Sözü\n"
-            "________________\n\n"
-            f"“{quote_text}”\n"
-        )
+        text = f"{t['quote_prefix']}\n\n“{quote_text}”"
         if author:
-            text += f"\n— {author}\n"
-        text += "\nGünün sözünü beğendiysen bize destek olmak için bir arkadaşınla paylaş. 💜"
+            text += f"\n— {author}"
+        text += "\n\nGünün sözünü beğendiysen bize destek olmak için bir arkadaşınla paylaş. 💜"
     else:
-        text = (
-            "Quote of the Day\n"
-            "________________\n\n"
-            f"“{quote_text}”\n"
-        )
+        text = f"{t['quote_prefix']}\n\n“{quote_text}”"
         if author:
-            text += f"\n— {author}\n"
-        text += "\nIf you liked today’s quote, support us by sharing it with a friend. 💜"
+            text += f"\n— {author}"
+        text += "\n\nIf you liked today’s quote, support us by sharing it with a friend. 💜"
 
     kb = build_main_keyboard(lang, user_id, quote=full_text)
 
@@ -717,18 +725,6 @@ async def send_daily_quote_to_user(
     stats["quotes"] += 1
     if stats["ads"] < MAX_ADS_PER_DAY:
         await send_adsgram_ad(None, context, lang, user_id)
-
-
-async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Her gün TR 10:00'da çağrılır: herkes için tek gün sözü."""
-    for user_id in list(KNOWN_USERS):
-        if not DAILY_ENABLED.get(user_id, True):
-            continue
-        lang = USER_LANG.get(user_id, "tr")
-        try:
-            await send_daily_quote_to_user(user_id, lang, context)
-        except Exception as e:
-            logger.warning(f"Error sending daily quote to {user_id}: {e}")
 
 # -------------------------------------------------
 # LANGUAGE SELECTION / SETTINGS
@@ -961,6 +957,18 @@ def main() -> None:
 
     logger.info("Quote Masters botu çalışıyor...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+async def daily_quote_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Her gün TR 10:00'da çağrılır: herkes için tek gün sözü."""
+    for user_id in list(KNOWN_USERS):
+        if not DAILY_ENABLED.get(user_id, True):
+            continue
+        lang = USER_LANG.get(user_id, "tr")
+        try:
+            await send_daily_quote_to_user(user_id, lang, context)
+        except Exception as e:
+            logger.warning(f"Error sending daily quote to {user_id}: {e}")
 
 
 if __name__ == "__main__":
