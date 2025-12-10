@@ -364,7 +364,7 @@ Butonlarla:
         "no_quote": "Şu an için gösterecek söz bulamadım.",
         "fallback": "Quote Masters'ı kullanmak için aşağıdaki butonları kullanabilirsin 👇",
         "topic_menu_title": "Lütfen bir konu seç:",
-        "settings_title": ⚙️ Ayarlar",
+        "settings_title": "Ayarlar",
         "settings_daily_on": "Günün sözü bildirimi: Açık",
         "settings_daily_off": "Günün sözü bildirimi: Kapalı",
         "settings_lang": "Dil:",
@@ -392,13 +392,14 @@ Buttons:
         "no_quote": "I don't have a quote to show right now.",
         "fallback": "You can use the buttons below to use Quote Masters 👇",
         "topic_menu_title": "Please choose a topic:",
-        "settings_title": "⚙️ Settings",
+        "settings_title": "Settings",
         "settings_daily_on": "Daily quote notification: ON",
         "settings_daily_off": "Daily quote notification: OFF",
         "settings_lang": "Language:",
         "daily_quote_title": "📅 Daily quote",
     },
 }
+
 
 # -------------------------------------------------
 # STATE
