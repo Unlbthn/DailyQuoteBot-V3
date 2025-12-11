@@ -12,6 +12,9 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
+from urllib.parse import quote_plus
+
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -474,30 +477,57 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
     # PAYLAŞIM
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from urllib.parse import quote_plus
+    if data.startswith("share:"):
+        # Son gösterilen sözü biliyorsak onu kullan
+        quote = user_data.get("last_quote")
 
-def build_share_keyboard(quote_text: str, lang: str) -> InlineKeyboardMarkup:
-    # Paylaşılacak metin
-    share_text = (
-        f"{quote_text}\n\n"
-        "Türkçe ve İngilizce anlamlı sözler için: @QuoteMastersBot"
-        if lang == "tr"
-        else f"{quote_text}\n\n"
-             "Meaningful quotes in Turkish & English: @QuoteMastersBot"
-    )
+        # Yoksa mevcut konudan rastgele bir söz al
+        if not quote:
+            topic = user_data.get("topic") or "motivation"
+            quote = pick_random_quote(lang, topic)
+            user_data["last_quote"] = quote
+
+        kb = build_share_keyboard(quote, lang)
+
+        await query.message.reply_text(
+            t["share_link_ready"],
+            reply_markup=kb,
+        )
+        return
+
+
+    # PAYLAŞIM
+    
+
+def build_share_keyboard(quote: Dict[str, Any], lang: str) -> InlineKeyboardMarkup:
+    text = format_quote_text(quote)
+
+    if lang == "tr":
+        share_text = (
+            f"{text}\n\n"
+            "Türkçe ve İngilizce anlamlı sözler için: @QuoteMastersBot"
+        )
+    else:
+        share_text = (
+            f"{text}\n\n"
+            "Meaningful quotes in Turkish & English: @QuoteMastersBot"
+        )
 
     wa_url = f"https://wa.me/?text={quote_plus(share_text)}"
-    tg_url = f"https://t.me/share/url?url={quote_plus('@QuoteMastersBot')}&text={quote_plus(share_text)}"
+    tg_url = (
+        "https://t.me/share/url?"
+        f"url={quote_plus('https://t.me/QuoteMastersBot')}"
+        f"&text={quote_plus(share_text)}"
+    )
 
     keyboard = [
         [
             InlineKeyboardButton("📲 WhatsApp", url=wa_url),
             InlineKeyboardButton("📨 Telegram", url=tg_url),
-        ],
-        # alttaki satırda Günün Sözü / Sözü Değiştir / Konuyu Değiştir / Ayarlar vs durabilir
+        ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 
 
