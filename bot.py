@@ -37,7 +37,7 @@ DAILY_QUOTE_HOUR = 10
 #  QUOTES IMPORT
 # ============================================================
 
-from quotes import QUOTES_TR, QUOTES_EN    # Tüm kategoriler TR/EN
+from quotes import quotes.py       # Tüm kategoriler TR/EN
 
 
 # ============================================================
@@ -359,22 +359,16 @@ async def send_quote(
 # ============================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    lang = get_user_lang(user)
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
 
-    if lang == "tr":
-        welcome = TEXTS["tr"]["welcome"]
-    else:
-        welcome = TEXTS["en"]["welcome"]
+    welcome = WELCOME_TEXT[lang]
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang:tr"),
-            InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-        ]
-    ])
-
-    await update.message.reply_text(welcome, reply_markup=keyboard)
+    await update.message.reply_text(
+        welcome,
+        parse_mode="Markdown",
+        reply_markup=language_keyboard()
+    )
 
 
 # ============================================================
@@ -556,6 +550,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
