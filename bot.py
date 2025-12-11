@@ -530,22 +530,14 @@ async def daily_job(context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 
 def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN environment variable is missing!")
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
 
-    # Komutlar
-    app.add_handler(CommandHandler("start", start))
+    application.job_queue.run_daily(send_daily_quote, time=datetime.time(10, 0))
 
-    # Callback
-    app.add_handler(CallbackQueryHandler(handle_callback))
-
-    # Günlük saat 10:00 job
-    send_time = time(hour=DAILY_QUOTE_HOUR, minute=0, tzinfo=TZ_IST)
-    app.job_queue.run_daily(daily_job, time=send_time)
-
-    app.run_polling()
+    application.run_polling()
 
 
 if __name__ == "__main__":
