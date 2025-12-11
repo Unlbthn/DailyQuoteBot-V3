@@ -1,5 +1,11 @@
 # ============================================================
-#  QuoteMastersBot - FINAL VERSION (Daily Quote + AdsGram + Share)
+#  QuoteMastersBot - FINAL (Daily Quote + AdsGram + Share)
+#  - QUOTES_TR / QUOTES_EN -> quotes.py'den geliyor
+#  - Günün sözü: tüm sözlerden random, günde 1 kez (10:00 TR)
+#  - "Günün Sözü" butonu her zaman o gün seçilmiş aynı sözü gösterir
+#  - "Sözü değiştir" sadece seçili konudan random getirir
+#  - WhatsApp / Telegram paylaş butonları sadece paylaşım ekranını açar
+#  - Her sözün altında AdsGram reklam metni (varsa) gösterilir
 # ============================================================
 
 import os
@@ -20,50 +26,98 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    ContextTypes
+    ContextTypes,
 )
 
-# ============================================================
-#  LOAD TOKENS
-# ============================================================
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID")  # ÖRN: "12345"
-
-TZ_IST = ZoneInfo("Europe/Istanbul")
-DAILY_QUOTE_HOUR = 10
-
-# ============================================================
-#  QUOTES IMPORT
-# ============================================================
-
+# quotes.py içeriğini kullan
 from quotes import QUOTES_TR, QUOTES_EN
 
 
 # ============================================================
-#  GLOBAL STATE
+#  CONFIG
 # ============================================================
 
-USER_LANG = {}             # user_id -> "tr" / "en"
-USER_TOPIC = {}            # user_id -> "motivation" vb.
-USER_DAILY = {}            # user_id -> True/False
-USER_LAST = {}             # user_id -> last quote text
-KNOWN_USERS = set()        # günlük job için
-
-DAILY_QUOTES = {"tr": "", "en": ""}   # o günün sabit sözü
-DAILY_DATE = None                     # hangi güne ait olduğunu takip eder
-
-DEFAULT_TOPIC = "motivation"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID")  # Render env'de: bot-17933 yazıyor
+TZ_IST = ZoneInfo("Europe/Istanbul")
+DAILY_QUOTE_HOUR = 10  # 10:00 TR
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("QuoteMastersBot")
 
 # ============================================================
-#  HELPER FUNCTIONS
+#  GLOBAL STATE
+# ============================================================
+
+USER_LANG: dict[int, str] = {}       # user_id -> "tr" / "en"
+USER_TOPIC: dict[int, str] = {}      # user_id -> kategori label (örn: "Motivasyon" / "Motivation")
+USER_DAILY: dict[int, bool] = {}     # user_id -> günlük bildirim açık mı
+KNOWN_USERS: set[int] = set()        # günlük job için user listesi
+
+DAILY_QUOTES: dict[str, str] = {"tr": "", "en": ""}  # o günün sabit sözleri
+DAILY_DATE: date | None = None                        # hangi güne ait olduğunu takip eder
+
+
+# ============================================================
+#  STATIK METINLER
+# ============================================================
+
+TEXTS = {
+    "tr": {
+        "welcome": (
+            "✨ Quote Masters'a hoş geldin!\n\n"
+            "Konuya göre anlamlı sözler keşfet, her gün saat 10:00’da günün sözünü al."
+        ),
+        "choose_language": "Lütfen bir dil seç:",
+        "choose_topic": "Bir konu seç:",
+        "daily_header": "📅 Günün Sözü",
+        "settings": "⚙ Ayarlar",
+        "settings_lang": "🌐 Dil / Language",
+        "settings_notify": "🔔 Bildirimleri Aç/Kapat",
+        "notify_on": "🔔 Günlük bildirimler açıldı (10:00 TR).",
+        "notify_off": "🔕 Günlük bildirimler kapatıldı.",
+        "share_link_ready": "🔗 Paylaşım linki hazır:",
+        "menu_daily": "📅 Günün Sözü",
+        "menu_share_wa": "📤 WhatsApp",
+        "menu_share_tg": "📣 Telegram",
+        "menu_new": "🔄 Sözü değiştir",
+        "menu_change_topic": "📚 Konuyu değiştir",
+        "menu_settings": "⚙ Ayarlar",
+        "daily_ping": "🎯 Bugünün sözü hazır! Görmek için /start yaz.",
+        "no_quote": "Şu an bu konu için söz bulunamadı.",
+    },
+    "en": {
+        "welcome": (
+            "✨ Welcome to Quote Masters!\n\n"
+            "Discover meaningful quotes by topic and get a quote of the day at 10:00 Istanbul time."
+        ),
+        "choose_language": "Please choose a language:",
+        "choose_topic": "Choose a topic:",
+        "daily_header": "📅 Quote of the Day",
+        "settings": "⚙ Settings",
+        "settings_lang": "🌐 Language",
+        "settings_notify": "🔔 Toggle daily notifications",
+        "notify_on": "🔔 Daily notifications enabled (10:00 Istanbul time).",
+        "notify_off": "🔕 Daily notifications disabled.",
+        "share_link_ready": "🔗 Share link is ready:",
+        "menu_daily": "📅 Quote of the Day",
+        "menu_share_wa": "📤 WhatsApp",
+        "menu_share_tg": "📣 Telegram",
+        "menu_new": "🔄 New Quote",
+        "menu_change_topic": "📚 Change Topic",
+        "menu_settings": "⚙ Settings",
+        "daily_ping": "🎯 Today's quote is ready! Type /start to see it.",
+        "no_quote": "No quote available for this topic yet.",
+    },
+}
+
+
+# ============================================================
+#  HELPERS: DIL & DATA
 # ============================================================
 
 def get_user_lang(user) -> str:
-    """Kullanıcı dili yoksa otomatik tespit eder."""
+    """Kullanıcının dilini belirle; yoksa Telegram dil koduna göre tahmin et."""
     uid = user.id
     if uid in USER_LANG:
         return USER_LANG[uid]
@@ -72,474 +126,351 @@ def get_user_lang(user) -> str:
     lang = "tr" if lang_code.startswith("tr") else "en"
 
     USER_LANG[uid] = lang
-    USER_TOPIC.setdefault(uid, DEFAULT_TOPIC)
     USER_DAILY.setdefault(uid, True)
     KNOWN_USERS.add(uid)
     return lang
 
 
-def pick_from_topic(topic: str, lang: str) -> str:
-    """Sadece seçilen kategoriden rastgele söz getirir."""
-    arr = QUOTES.get(topic, {}).get(lang, [])
+def get_quotes_dict(lang: str) -> dict[str, list[str]]:
+    return QUOTES_TR if lang == "tr" else QUOTES_EN
+
+
+def pick_from_topic(topic_label: str, lang: str) -> str:
+    """Sadece seçilen kategoriden rastgele söz getirir (quotes.py'den)."""
+    data = get_quotes_dict(lang)
+    arr = data.get(topic_label, [])
     if not arr:
         return TEXTS[lang]["no_quote"]
-    entry = random.choice(arr)
-    text = entry["text"]
-    author = entry.get("author")
-    return f"{text} — {author}" if author else text
+    return random.choice(arr)
 
 
 def pick_from_all(lang: str) -> str:
     """Günün sözü için tüm kategorilerden rastgele söz alır."""
-    all_items = []
-    for topic_data in QUOTES.values():
-        all_items.extend(topic_data.get(lang, []))
+    data = get_quotes_dict(lang)
+    all_items: list[str] = []
+    for lst in data.values():
+        all_items.extend(lst)
 
     if not all_items:
         return TEXTS[lang]["no_quote"]
 
-    entry = random.choice(all_items)
-    text = entry["text"]
-    author = entry.get("author")
-    return f"{text} — {author}" if author else text
+    return random.choice(all_items)
 
 
-def ensure_daily_quotes():
-    """Her gün TR ve EN için sabit günlük söz seçer."""
+def ensure_daily_quotes() -> None:
+    """Gün değişmişse TR ve EN için yeni günlük söz üret."""
     global DAILY_DATE, DAILY_QUOTES
 
     today = date.today()
-    if DAILY_DATE == today and DAILY_QUOTES["tr"] and DAILY_QUOTES["en"]:
-        return  # zaten bugünün sözü seçilmiş
+    if DAILY_DATE == today:
+        return
 
     DAILY_DATE = today
     DAILY_QUOTES["tr"] = pick_from_all("tr")
     DAILY_QUOTES["en"] = pick_from_all("en")
-    logger.info("Yeni günlük sözler seçildi.")
+    logger.info("New daily quotes selected: TR='%s' | EN='%s'",
+                DAILY_QUOTES['tr'][:40], DAILY_QUOTES['en'][:40])
+
+
 # ============================================================
-#  ADSGRAM REKLAM BLOĞU
+#  ADSGRAM
 # ============================================================
 
 def fetch_adsgram_ad() -> str:
     """
-    AdsGram reklam metnini çekerek aşağıdaki formatta döndürür:
-    
-    🟣 *Sponsored*
-    <title>
-    <description>
-    <link>
-
-    Eğer reklam yoksa → sadece 🟣 *Sponsored* döner.
+    AdsGram'den reklam çeker.
+    Türkçe reklam yoksa / reklam bulunamazsa yine de *Sponsored* fallback metnini döner.
     """
+    # Platform ID botu AdsGram panelinde oluşturduğun sayfa
+    platform_id = 16417
+
     if not ADSGRAM_BLOCK_ID:
-        return "🟣 *Sponsored*"
+        # Yine de fallback göster
+        return (
+            "🟣 *Sponsored*\n"
+            "Günün anlamlı sözleri için Quote Masters'ı arkadaşlarınla paylaş."
+        )
+
+    url = (
+        "https://adsgram.ai/api/v1/show"
+        f"?platform={platform_id}&block_id={ADSGRAM_BLOCK_ID}"
+    )
 
     try:
-        url = f"https://adsgram.ai/api/v1/show?block_id={ADSGRAM_BLOCK_ID}"
-        response = requests.get(url, timeout=3)
-
-        if response.status_code != 200:
-            return "🟣 *Sponsored*"
-
-        data = response.json()
-        if not data.get("ok"):
-            return "🟣 *Sponsored*"
-
-        result = data.get("result", {})
-        title = result.get("title", "")
-        desc = result.get("description", "")
-        link = result.get("link", "")
-        text = result.get("text", "")
-
-        lines = ["🟣 *Sponsored*"]
-        if title:
-            lines.append(f"*{title}*")
-        if desc:
-            lines.append(desc)
-        if text and text not in desc:
-            lines.append(text)
-        if link:
-            lines.append(link)
-
-        return "\n".join(lines)
-
+        r = requests.get(url, timeout=3)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("ok") and data.get("result"):
+                ad = data["result"]
+                title = ad.get("title", "")
+                desc = ad.get("description", "")
+                link = ad.get("link", "")
+                parts = ["🟣 *Sponsored*"]
+                if title:
+                    parts.append(f"\n*{title}*")
+                if desc:
+                    parts.append(f"\n{desc}")
+                if link:
+                    parts.append(f"\n{link}")
+                return "".join(parts)
     except Exception as e:
-        logger.warning(f"AdsGram error: {e}")
-        return "🟣 *Sponsored*"
+        logger.warning("AdsGram error: %s", e)
+
+    # Fallback
+    return (
+        "🟣 *Sponsored*\n"
+        "Günün anlamlı sözleri için Quote Masters'ı arkadaşlarınla paylaş."
+    )
+
+
+def format_quote_with_ad(quote_text: str, lang: str) -> str:
+    ad_text = fetch_adsgram_ad()
+    header = TEXTS[lang]["daily_header"]
+    return f"{header}\n\n{quote_text}\n\n{ad_text}"
 
 
 # ============================================================
-#  PAYLAŞIM + MENÜ BUTONLARI
+#  BUTTON BUILDERS
 # ============================================================
 
-def build_menu(lang: str, quote_text: str) -> InlineKeyboardMarkup:
-    """WhatsApp + Telegram paylaşım butonları ile premium alt menü oluşturur."""
-
-    if lang == "tr":
-        daily_label = "📅 Günün Sözü"
-        new_label = "✨ Sözü değiştir"
-        change_label = "🔄 Konuyu değiştir"
-        settings_label = "⚙️ Ayarlar"
-        wa_label = "📲 WhatsApp’ta Paylaş"
-        tg_label = "📨 Telegram’da Paylaş"
-        share_tail = "\n\n⭐ Daha fazla söz için: @QuoteMastersBot"
-    else:
-        daily_label = "📅 Quote of the Day"
-        new_label = "✨ New Quote"
-        change_label = "🔄 Change Topic"
-        settings_label = "⚙️ Settings"
-        wa_label = "📲 Share on WhatsApp"
-        tg_label = "📨 Share on Telegram"
-        share_tail = "\n\n⭐ More quotes: @QuoteMastersBot"
-
-    share_text = quote_text + share_tail
-    encoded = urllib.parse.quote_plus(share_text)
-    encoded_bot = urllib.parse.quote_plus("https://t.me/QuoteMastersBot")
-
+def menu_buttons(lang: str, quote_text: str = "") -> InlineKeyboardMarkup:
+    """
+    Ana menü butonları.
+    WhatsApp / Telegram share butonları sadece paylaşım ekranını açar.
+    """
+    encoded = urllib.parse.quote(quote_text or "")
     whatsapp_url = f"https://wa.me/?text={encoded}"
-    telegram_url = f"https://t.me/share/url?url={encoded_bot}&text={encoded}"
+    telegram_url = f"https://t.me/share/url?url={encoded}&text={encoded}"
 
-    keyboard = [
+    t = TEXTS[lang]
+    return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(daily_label, callback_data="action:daily"),
-            InlineKeyboardButton(wa_label, url=whatsapp_url),
+            InlineKeyboardButton(t["menu_daily"], callback_data="daily"),
+            InlineKeyboardButton(t["menu_share_wa"], url=whatsapp_url),
         ],
         [
-            InlineKeyboardButton(tg_label, url=telegram_url),
-            InlineKeyboardButton(new_label, callback_data="action:new"),
+            InlineKeyboardButton(t["menu_share_tg"], url=telegram_url),
+            InlineKeyboardButton(t["menu_new"], callback_data="new_quote"),
         ],
         [
-            InlineKeyboardButton(change_label, callback_data="action:change"),
-            InlineKeyboardButton(settings_label, callback_data="action:settings"),
+            InlineKeyboardButton(t["menu_change_topic"], callback_data="change_topic"),
+            InlineKeyboardButton(t["menu_settings"], callback_data="settings"),
         ],
-    ]
-
-    return InlineKeyboardMarkup(keyboard)
+    ])
 
 
-# ============================================================
-#  KATEGORİ SEÇİM BUTONLARI
-# ============================================================
+def categories_buttons(lang: str) -> InlineKeyboardMarkup:
+    data = get_quotes_dict(lang)
+    labels = list(data.keys())
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
 
-TOPIC_LABELS = {
-    "tr": {
-        "motivation": "Motivasyon",
-        "love": "Aşk",
-        "success": "Başarı",
-        "life": "Hayat",
-        "selfcare": "Kendine İyi Bak",
-        "sport": "Spor",
-        "discipline": "Disiplin",
-        "friendship": "Dostluk",
-        "resilience": "Dayanıklılık",
-        "creativity": "Yaratıcılık",
-        "work": "İş & Kariyer",
-        "gratitude": "Şükran",
-    },
-    "en": {
-        "motivation": "Motivation",
-        "love": "Love",
-        "success": "Success",
-        "life": "Life",
-        "selfcare": "Self-care",
-        "sport": "Sport",
-        "discipline": "Discipline",
-        "friendship": "Friendship",
-        "resilience": "Resilience",
-        "creativity": "Creativity",
-        "work": "Career",
-        "gratitude": "Gratitude",
-    },
-}
-
-TOPIC_ORDER = [
-    "motivation",
-    "love",
-    "success",
-    "life",
-    "selfcare",
-    "sport",
-    "discipline",
-    "friendship",
-    "resilience",
-    "creativity",
-    "work",
-    "gratitude",
-]
-
-
-def build_topics(lang: str) -> InlineKeyboardMarkup:
-    """6 satır × 2 sütun konu seçme menüsü."""
-    labels = TOPIC_LABELS[lang]
-    rows = []
-    row = []
-
-    for topic in TOPIC_ORDER:
-        btn = InlineKeyboardButton(labels[topic], callback_data=f"topic:{topic}")
-        row.append(btn)
+    for label in labels:
+        row.append(InlineKeyboardButton(label, callback_data=f"cat::{label}"))
         if len(row) == 2:
             rows.append(row)
             row = []
-
     if row:
         rows.append(row)
 
     return InlineKeyboardMarkup(rows)
 
 
-# ============================================================
-#  AYARLAR MENÜSÜ
-# ============================================================
+def settings_buttons(lang: str) -> InlineKeyboardMarkup:
+    t = TEXTS[lang]
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t["settings_lang"], callback_data="toggle_lang")],
+        [InlineKeyboardButton(t["settings_notify"], callback_data="toggle_notify")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")],
+    ])
 
-def build_settings(lang: str) -> InlineKeyboardMarkup:
-    if lang == "tr":
-        btn_lang = "🌐 Dili değiştir"
-        btn_notif = "🔔 Bildirimleri Aç/Kapat"
-        btn_back = "⬅️ Geri"
-    else:
-        btn_lang = "🌐 Change Language"
-        btn_notif = "🔔 Toggle Daily Quote"
-        btn_back = "⬅️ Back"
 
-    keyboard = [
-        [InlineKeyboardButton(btn_lang, callback_data="settings:lang")],
-        [InlineKeyboardButton(btn_notif, callback_data="settings:toggle")],
-        [InlineKeyboardButton(btn_back, callback_data="settings:back")],
-    ]
-
-    return InlineKeyboardMarkup(keyboard)
 # ============================================================
-#  SÖZ GÖNDERİMİ
+#  HANDLERS
 # ============================================================
 
-async def send_quote(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    quote_text: str,
-    lang: str,
-    edit: bool = False,
-    daily: bool = False
-):
-    """Her söz gönderiminde reklam + alt menü ekleyerek gönderir."""
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    lang = get_user_lang(user)
+    ensure_daily_quotes()
 
-    USER_LAST[update.effective_user.id] = quote_text  # type: ignore
-
-    # Günün sözü başlığı
-    if daily:
-        title = TEXTS[lang]["daily_quote"]
-        text = f"{title}\n\n{quote_text}"
-    else:
-        text = quote_text
-
-    # Reklam bloğu
-    ad = fetch_adsgram_ad()
-    if ad:
-        text += f"\n\n{ad}"
-
-    # Alt menü
-    keyboard = build_menu(lang, quote_text)
-
-    # Mesaj güncelleme / yeni mesaj
-    if edit and update.callback_query:
-        await update.callback_query.edit_message_text(
-            text=text,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN
+    # İlk kez gelenlerde konu seçtirelim
+    uid = user.id
+    if uid not in USER_TOPIC:
+        text = TEXTS[lang]["welcome"] + "\n\n" + TEXTS[lang]["choose_topic"]
+        await update.message.reply_text(
+            text,
+            reply_markup=categories_buttons(lang),
         )
-    else:
-        await update.effective_chat.send_message(  # type: ignore
-            text=text,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN
-        )
+        return
 
-
-# ============================================================
-#  /START KOMUTU
-# ============================================================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_lang(user_id)
-
-    welcome = WELCOME_TEXT[lang]
-
+    # Daha önce konu seçmişse, direkt ana menü + günlük söz
+    daily = DAILY_QUOTES[lang]
+    msg = format_quote_with_ad(daily, lang)
     await update.message.reply_text(
-        welcome,
-        parse_mode="Markdown",
-        reply_markup=language_keyboard()
+        msg,
+        reply_markup=menu_buttons(lang, daily),
+        parse_mode=ParseMode.MARKDOWN,
+        disable_web_page_preview=True,
     )
 
 
-# ============================================================
-#  CALLBACK HANDLER
-# ============================================================
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-
     user = query.from_user
-    user_id = user.id
     lang = get_user_lang(user)
+    uid = user.id
+
     data = query.data or ""
 
-    # --------------------------------------------------------
-    # DİL DEĞİŞTİRME
-    # --------------------------------------------------------
-
-    if data.startswith("lang:"):
-        new_lang = data.split(":")[1]
-        USER_LANG[user_id] = new_lang
-        lang = new_lang
-
-        if lang == "tr":
-            text = TEXTS["tr"]["topic_select"]
-        else:
-            text = TEXTS["en"]["topic_select"]
-
-        await query.edit_message_text(text, reply_markup=build_topics(lang))
+    # Konu seçimi
+    if data.startswith("cat::"):
+        label = data.split("::", 1)[1]
+        USER_TOPIC[uid] = label
+        quote = pick_from_topic(label, lang)
+        msg = f"{quote}\n\n{fetch_adsgram_ad()}"
+        await query.edit_message_text(
+            msg,
+            reply_markup=menu_buttons(lang, quote),
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
+        )
         return
 
-    # --------------------------------------------------------
-    # KONU SEÇİMİ
-    # --------------------------------------------------------
-
-    if data.startswith("topic:"):
-        topic = data.split(":")[1]
-        USER_TOPIC[user_id] = topic
-
-        quote_text = pick_from_topic(topic, lang)
-        await send_quote(update, context, quote_text, lang, edit=True)
+    # Günün sözü (sabit)
+    if data == "daily":
+        ensure_daily_quotes()
+        quote = DAILY_QUOTES[lang]
+        msg = format_quote_with_ad(quote, lang)
+        await query.edit_message_text(
+            msg,
+            reply_markup=menu_buttons(lang, quote),
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
+        )
         return
 
-    # --------------------------------------------------------
-    # ALT MENÜ AKSİYONLARI
-    # --------------------------------------------------------
-
-    if data.startswith("action:"):
-        action = data.split(":")[1]
-
-        # ✨ SÖZÜ DEĞİŞTİR
-        if action == "new":
-            topic = USER_TOPIC.get(user_id, DEFAULT_TOPIC)
-            quote_text = pick_from_topic(topic, lang)
-            await send_quote(update, context, quote_text, lang, edit=True)
-            return
-
-        # 📅 GÜNÜN SÖZÜ
-        if action == "daily":
-            ensure_daily_quotes()
-            quote_text = DAILY_QUOTES[lang]
-            await send_quote(update, context, quote_text, lang, edit=True, daily=True)
-            return
-
-        # 🔄 KONUYU DEĞİŞTİR
-        if action == "change":
-            if lang == "tr":
-                text = TEXTS["tr"]["topic_select"]
-            else:
-                text = TEXTS["en"]["topic_select"]
-
-            await query.edit_message_text(text, reply_markup=build_topics(lang))
-            return
-
-        # ⚙️ AYARLAR
-        if action == "settings":
+    # Sözü değiştir (sadece seçili konudan)
+    if data == "new_quote":
+        topic_label = USER_TOPIC.get(uid)
+        if not topic_label:
+            # Konu seçilmemişse önce konu seçtir
             await query.edit_message_text(
-                TEXTS[lang]["settings"],
-                reply_markup=build_settings(lang)
+                TEXTS[lang]["choose_topic"],
+                reply_markup=categories_buttons(lang),
             )
             return
 
-    # --------------------------------------------------------
-    # AYARLAR ALT MENÜSÜ
-    # --------------------------------------------------------
+        quote = pick_from_topic(topic_label, lang)
+        msg = f"{quote}\n\n{fetch_adsgram_ad()}"
+        await query.edit_message_text(
+            msg,
+            reply_markup=menu_buttons(lang, quote),
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
+        )
+        return
 
-    if data.startswith("settings:"):
-        sub = data.split(":")[1]
+    # Konuyu değiştir
+    if data == "change_topic":
+        await query.edit_message_text(
+            TEXTS[lang]["choose_topic"],
+            reply_markup=categories_buttons(lang),
+        )
+        return
 
-        # 🌐 DİL DEĞİŞTİR
-        if sub == "lang":
-            keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang:tr"),
-                    InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-                ]
-            ])
-            await query.edit_message_text(TEXTS[lang]["language"], reply_markup=keyboard)
-            return
+    # Ayarlar menüsü
+    if data == "settings":
+        await query.edit_message_text(
+            TEXTS[lang]["settings"],
+            reply_markup=settings_buttons(lang),
+        )
+        return
 
-        # 🔔 BİLDİRİM AÇ/KAPAT
-        if sub == "toggle":
-            current = USER_DAILY.get(user_id, True)
-            USER_DAILY[user_id] = not current
+    # Dil değiştir
+    if data == "toggle_lang":
+        USER_LANG[uid] = "en" if lang == "tr" else "tr"
+        new_lang = USER_LANG[uid]
+        await query.edit_message_text(
+            TEXTS[new_lang]["settings"],
+            reply_markup=settings_buttons(new_lang),
+        )
+        return
 
-            msg = (
-                TEXTS["tr"]["notif_off"] if current else TEXTS["tr"]["notif_on"]
-            ) if lang == "tr" else (
-                TEXTS["en"]["notif_off"] if current else TEXTS["en"]["notif_on"]
-            )
+    # Bildirim aç / kapa
+    if data == "toggle_notify":
+        current = USER_DAILY.get(uid, True)
+        USER_DAILY[uid] = not current
+        txt_key = "notify_on" if USER_DAILY[uid] else "notify_off"
+        await query.edit_message_text(
+            TEXTS[lang][txt_key],
+            reply_markup=settings_buttons(lang),
+        )
+        return
 
-            await query.answer(msg, show_alert=True)
-            return
-
-        # ⬅️ GERİ
-        if sub == "back":
-            last = USER_LAST.get(user_id)
-            if not last:
-                last = pick_from_all(lang)
-            await send_quote(update, context, last, lang, edit=True)
-            return
+    # Menüyü geri getir
+    if data == "back_to_menu":
+        ensure_daily_quotes()
+        quote = DAILY_QUOTES[lang]
+        msg = format_quote_with_ad(quote, lang)
+        await query.edit_message_text(
+            msg,
+            reply_markup=menu_buttons(lang, quote),
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
+        )
+        return
 
 
 # ============================================================
-#  GÜNDELİK BİLDİRİM JOB'U (SAAT 10:00)
+#  DAILY JOB
 # ============================================================
 
-async def daily_job(context: ContextTypes.DEFAULT_TYPE):
+async def daily_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Her gün 10:00'da bildirim açmış kullanıcılara günün sözünü gönderir."""
     ensure_daily_quotes()
-
-    for user_id in list(KNOWN_USERS):
-        # Bildirim kapalıysa geç
-        if not USER_DAILY.get(user_id, True):
+    for uid in list(KNOWN_USERS):
+        lang = USER_LANG.get(uid, "tr")
+        if not USER_DAILY.get(uid, True):
             continue
-
-        lang = USER_LANG.get(user_id, "tr")
-        quote_text = DAILY_QUOTES[lang]
-
-        ad = fetch_adsgram_ad()
-
-        msg = f"{TEXTS[lang]['daily_quote']}\n\n{quote_text}"
-        if ad:
-            msg += f"\n\n{ad}"
-
+        quote = DAILY_QUOTES[lang]
+        msg = format_quote_with_ad(quote, lang)
         try:
             await context.bot.send_message(
-                chat_id=user_id,
+                chat_id=uid,
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=build_menu(lang, quote_text)
+                disable_web_page_preview=True,
             )
         except Exception as e:
-            logger.warning(f"Daily quote failed for {user_id}: {e}")
+            logger.warning("Failed to send daily quote to %s: %s", uid, e)
 
 
 # ============================================================
-#  BOTU BAŞLAT
+#  MAIN
 # ============================================================
 
-def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+def main() -> None:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN environment variable is not set")
+
+    application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CallbackQueryHandler(handle_callback))
 
-    application.job_queue.run_daily(send_daily_quote, time=datetime.time(10, 0))
+    # Günlük job (10:00 TR)
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        daily_job,
+        time=time(hour=DAILY_QUOTE_HOUR, minute=0, tzinfo=TZ_IST),
+        name="daily_quote_job",
+    )
 
-    application.run_polling()
+    logger.info("QuoteMastersBot is starting…")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
     main()
-
