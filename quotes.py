@@ -1,11 +1,10 @@
-# quotes.py – Extended Version (TR & EN +10 new quotes per category)
+# quotes.py – Extended Version with Famous People Quotes (TR & EN)
 
 QUOTES_TR = {
     "Motivasyon": [
         "Zorluklar, güçlü insanları yaratır.",
         "Başlamak için mükemmel olmak zorunda değilsin.",
         "Devam eden kazanır.",
-        # NEW
         "Bugün attığın küçük bir adım, yarın büyük bir değişim yaratır.",
         "Kendine inan; gerisi zaten gelir.",
         "Başlamaktan daha zor olan tek şey, vazgeçmemektir.",
@@ -15,14 +14,19 @@ QUOTES_TR = {
         "Hedefine odaklan, gürültüyü sustur.",
         "Güçlü olmanın en iyi yolu, zor zamanlardan geçmektir.",
         "Yapabileceğini düşünüyorsan, zaten yarı yolun dasın.",
-        "Bugün yapabildiğini yap; yarın daha fazlasını yaparsın."
+        "Bugün yapabildiğini yap; yarın daha fazlasını yaparsın.",
+        # Ünlü kişiler
+        "Ne kadar yavaş gittiğin önemli değil, durmadığın sürece yol alırsın. — Konfüçyüs",
+        "Hayatta en büyük zafer, hiç düşmemek değil; her düştüğünde yeniden ayağa kalkmaktır. — Nelson Mandela",
+        "Yapabileceğine inan; gerisi zaten kendiliğinden gelecektir. — Theodore Roosevelt",
+        "Güçlü olan, zayıf anında pes etmeyendir. — Vince Lombardi",
+        "Bugünün şüpheleri, yarının gerçeklerini sınırlar. — Franklin D. Roosevelt",
     ],
 
     "Başarı": [
         "Başarı tesadüf değildir; emek ister.",
         "Hazırlık şansı yakalayınca başarı ortaya çıkar.",
         "Ne kadar çok çalışırsan o kadar şanslı olursun.",
-        # NEW
         "Başarı, küçük zaferlerin toplamıdır.",
         "Her başarının arkasında görünmeyen bir çaba vardır.",
         "Doğru zamanda doğru yerde olmak değil; doğru kişi olmak önemlidir.",
@@ -31,14 +35,19 @@ QUOTES_TR = {
         "Fırsatlar hazırlanmış zihinlere gelir.",
         "Pes etmeyenler en sonunda kazanır.",
         "Disiplin olmadan başarı olmaz.",
-        "Yavaş ilerlemek durmaktan iyidir."
+        "Yavaş ilerlemek durmaktan iyidir.",
+        # Ünlü kişiler
+        "Başarı, hazırlık ile fırsatın buluştuğu yerdir. — Seneca",
+        "Kazananlar asla vazgeçmez; vazgeçenler asla kazanamaz. — Vince Lombardi",
+        "Başarı, her gün tekrarlanan küçük çabaların toplamıdır. — Robert Collier",
+        "Fırsatlar kendiliğinden olmaz; sen yaratırsın. — Chris Grosser",
+        "Başarı, çoğunlukla başkalarının pes ettiği noktadan sonra gelir. — William Feather",
     ],
 
     "Hayat": [
         "Hayat, cesur olana fırsatlar sunar.",
         "Dün geçti, yarın bilinmez; bugün yaşanır.",
         "Mutluluk, paylaştıkça çoğalır.",
-        # NEW
         "Hayat kısa, onu anlamlı yapan sensin.",
         "Her gün yeni bir başlangıçtır.",
         "Zaman geri gelmez; iyi kullan.",
@@ -47,14 +56,19 @@ QUOTES_TR = {
         "Bazen en büyük yolculuk, kendine yaptığındır.",
         "Hayat, seçimlerin toplamıdır.",
         "Sadelik çoğu zaman mutluluğun anahtarıdır.",
-        "Bugünü güzel yaşa; yarın belirsizdir."
+        "Bugünü güzel yaşa; yarın belirsizdir.",
+        # Ünlü kişiler
+        "Hayat, biz başka planlar yaparken başımıza gelenlerdir. — John Lennon",
+        "Dünyada görmek istediğin değişim ol. — Mahatma Gandhi",
+        "İnsanların çoğu, mutlu olmaya karar verdikleri ölçüde mutludur. — Abraham Lincoln",
+        "Yaşam cesurları ödüllendirir. — Virgil",
+        "Önemli olan, yıllara ne kadar hayat sığdırdığın. — Abraham Lincoln",
     ],
 
     "Kendine iyi bak": [
         "Kendine iyi bakmak, hayata iyi bakmaktır.",
         "Önce sen iyi ol ki dünya sana iyi gelsin.",
         "Bedenine ve zihnine iyi davran.",
-        # NEW
         "Kendini ihmal etmek, geleceğini ihmal etmektir.",
         "Dinlenmek de üretmektir.",
         "İyileşmek zaman ister; kendine sabırlı davran.",
@@ -63,7 +77,13 @@ QUOTES_TR = {
         "Kendine şefkat göster.",
         "Duygularını bastırma; anlamaya çalış.",
         "Zihnini temizle, enerjin tazelensin.",
-        "Kendine ayırdığın zaman asla boşa gitmez."
+        "Kendine ayırdığın zaman asla boşa gitmez.",
+        # Ünlü kişiler
+        "Kendine karşı nazik ol; ruhun da bunu duyar. — Buddha",
+        "Bedenin, ruhunun evindir; ona iyi bak. — Seneca",
+        "Zihninize yatırım yapmak, yapacağınız en iyi yatırımdır. — Benjamin Franklin",
+        "Kendini sevmek, ömür boyu sürecek bir aşkın başlangıcıdır. — Oscar Wilde",
+        "İç huzur, hayattaki en büyük servettir. — Dalai Lama",
     ],
 
     "Spor": [
@@ -71,7 +91,6 @@ QUOTES_TR = {
         "Zorluklar şampiyonları belirler.",
         "Ter, başarıya açılan kapının anahtarıdır.",
         "Zafer, hazırlananlarındır. — Herodot",
-        # NEW
         "Her tekrar seni güçlendirir.",
         "Disiplin, sporcunun gerçek gücüdür.",
         "Sınırlarını zorla; potansiyelini keşfet.",
@@ -80,14 +99,19 @@ QUOTES_TR = {
         "Pes etme, bir tekrar daha yap.",
         "Koşarken düşünceler değil, adımlar önemlidir.",
         "Güçlü olmak bir tercih meselesidir.",
-        "Antrenman yalan söylemez."
+        "Antrenman yalan söylemez.",
+        # Ünlü sporcular
+        "Kazanmak için önce kaybetmeyi öğrenmelisin. — Serena Williams",
+        "Başarısızlığı kabul edebilirim ama denememeyi asla. — Michael Jordan",
+        "Zorlu anlar güçlü insanlar yaratır. — Kobe Bryant",
+        "Hiçbir şey, çalışanı durduramaz. — Eliud Kipchoge",
+        "Acı geçicidir, pes etmek kalıcıdır. — Lance Armstrong",
     ],
 
     "Disiplin": [
         "Disiplin, başarının gizli anahtarıdır.",
         "Küçük disiplinler büyük zaferler getirir.",
         "İrade varsa yol vardır.",
-        # NEW
         "Disiplin, özgürlüğün başlangıcıdır.",
         "Her gün tekrar eden küçük alışkanlıklar seni değiştirir.",
         "Motivasyon gelir gider; disiplin kalır.",
@@ -96,14 +120,19 @@ QUOTES_TR = {
         "Zor olanı yapmak karakteri inşa eder.",
         "Disiplin, gelecekteki senin için bugünkü fedakarlıktır.",
         "Ne yapman gerektiğini bilmek değil, yapmak önemlidir.",
-        "Disiplinli olan yorulmaz; güçlenir."
+        "Disiplinli olan yorulmaz; güçlenir.",
+        # Ünlü kişiler
+        "Disiplin, hedeflerle başarı arasındaki köprüdür. — Jim Rohn",
+        "Özgürlük, disiplinle başlar. — Jocko Willink",
+        "Biz, tekrarladığımız şeyiz; mükemmellik bir eylem değil, alışkanlıktır. — Aristoteles",
+        "İrade, çalıştırıldıkça güçlenen bir kas gibidir. — Buddha",
+        "Disiplin olmadan hiçbir başarı sürdürülebilir değildir. — John C. Maxwell",
     ],
 
     "Dostluk": [
         "Gerçek dostluk mesafe tanımaz.",
         "Dostluk iki beden içinde yaşayan tek ruhtur.",
         "Yanında yürüyen bir dost, yoldaki yükü hafifletir.",
-        # NEW
         "Dost, zor günde belli olur.",
         "Gerçek arkadaşlık zamanla değil, samimiyetle ölçülür.",
         "Bir dost bir dünyadır.",
@@ -112,14 +141,19 @@ QUOTES_TR = {
         "İyi arkadaş, hayatı güzelleştirir.",
         "Birlikte gülmek en güzel bağdır.",
         "Dost, kalbinin aynasıdır.",
-        "Yanında huzur bulduğun kişi dostundur."
+        "Yanında huzur bulduğun kişi dostundur.",
+        # Ünlü kişiler
+        "Dost, bütünün diğer yarısıdır. — Platon",
+        "Gerçek dostluk, iki beden içinde yaşayan tek ruhtur. — Aristoteles",
+        "Bir dost edinmek istiyorsan, bir dost ol. — Ralph Waldo Emerson",
+        "Dostluk, mutluluğu artırır, acıyı azaltır. — Thomas Aquinas",
+        "Gerçek dostluk, iki kişi arasındaki sessizliği bile anlamlı kılar. — David Tyson",
     ],
 
     "Dayanıklılık": [
         "Vazgeçmeyen kazanır.",
         "Her yara seni daha güçlü yapar.",
         "Düşmek kaderindir, kalkmak tercihindir.",
-        # NEW
         "Zorluklar karakteri şekillendirir.",
         "Her karanlık gecenin bir sabahı vardır.",
         "Sabrın sonu daima güçtür.",
@@ -128,14 +162,19 @@ QUOTES_TR = {
         "Yıkılmadığın sürece yenilmedin.",
         "Güçlü insanlar, savaşarak güçlenenlerdir.",
         "Fırtına geçer, gökyüzü açılır.",
-        "Her nefes bir umuttur."
+        "Her nefes bir umuttur.",
+        # Ünlü kişiler
+        "Beni öldürmeyen şey beni güçlendirir. — Friedrich Nietzsche",
+        "Karanlığın en yoğun olduğu an, şafak sökmeden hemen öncedir. — Thomas Fuller",
+        "Her zorluk, içinde bir fırsat taşır. — Albert Einstein",
+        "Umudu olan için hiçbir yol kapanmaz. — Desmond Tutu",
+        "Dayanıklılık, pes etmeyenlerin sessiz zaferidir. — Unknown",
     ],
 
     "Yaratıcılık": [
         "Yaratıcılık zekânın eğlenmesidir.",
         "Fikirler özgür bırakıldığında değer kazanır.",
         "Hayal gücü her şeydir.",
-        # NEW
         "Her büyük eser bir fikirle başlar.",
         "Merak, yaratıcılığın yakıtıdır.",
         "Hayal kur; sınırlar ötesi seni bekler.",
@@ -144,14 +183,19 @@ QUOTES_TR = {
         "Farklı düşünmek cesaret ister.",
         "İlham her yerde; yeter ki bakmayı bil.",
         "Basitlik en yaratıcı çözümdür.",
-        "Her yanlış deneme yeni bir keşiftir."
+        "Her yanlış deneme yeni bir keşiftir.",
+        # Ünlü kişiler
+        "Hayal gücü bilgiden daha önemlidir. — Albert Einstein",
+        "Yaratıcılık bulaşıcıdır, yay. — Albert Einstein",
+        "Sanat, görünmeyeni görünür kılar. — Paul Klee",
+        "Yaratıcılık cesaret ister. — Henri Matisse",
+        "Fikirler, paylaşıldıkça büyür. — George Bernard Shaw",
     ],
 
     "İş & Kariyer": [
         "Küçük adımlar büyük kariyerler yaratır.",
         "İşini sev, başarı seni takip eder.",
         "Hazırlık, fırsatla buluştuğunda başarı doğar.",
-        # NEW
         "Kariyer bir yolculuktur; acele etme, ilerle.",
         "Bilgi, kariyerin en güçlü silahıdır.",
         "Hedefi olan yolunu bulur.",
@@ -160,14 +204,19 @@ QUOTES_TR = {
         "Doğru ekip, büyük fark yaratır.",
         "Kendine yatırım en değerli yatırımdır.",
         "Fırsatlar çalışana gelir.",
-        "Ne kadar öğrenirsen o kadar büyürsün."
+        "Ne kadar öğrenirsen o kadar büyürsün.",
+        # Ünlü kişiler
+        "Geleceği tahmin etmenin en iyi yolu onu yaratmaktır. — Peter Drucker",
+        "Mükemmellik bir eylem değil, alışkanlıktır. — Aristoteles",
+        "Harika işler başarmanın tek yolu, yaptığın işi sevmektir. — Steve Jobs",
+        "Her uzman bir zamanlar acemiydi. — Helen Hayes",
+        "Karşılığını almak istiyorsan önce değer üret. — Zig Ziglar",
     ],
 
     "Şükran": [
         "Şükür, sahip olduklarını çoğaltır.",
         "Minnettarlık huzurun kapısıdır.",
         "Teşekkür etmek ruhu hafifletir.",
-        # NEW
         "Bugün için şükret; yarın için umut et.",
         "Şükreden insan, huzuru bulur.",
         "Küçük şeylere minnet etmek büyüklüğü getirir.",
@@ -176,7 +225,13 @@ QUOTES_TR = {
         "Daha az şikayet, daha çok şükür.",
         "Sahip olduklarını fark et; her şey değişir.",
         "Mutluluk şükürle başlar.",
-        "Teşekkür, en sade mutluluktur."
+        "Teşekkür, en sade mutluluktur.",
+        # Ünlü kişiler
+        "Minnettarlık, erdemlerin en büyüğüdür. — Cicero",
+        "Şükran, mutluluğun temelidir. — B. K. S. Iyengar",
+        "Ne kadar şükredersen, şükredecek o kadar çok şey bulursun. — Oprah Winfrey",
+        "Teşekkür etmek, ruhun en zarif sanatıdır. — Voltaire",
+        "Mutlu insanların şükrettiği değil, şükredenlerin mutlu olduğu söylenir. — Unknown",
     ],
 }
 
@@ -191,7 +246,6 @@ QUOTES_EN = {
         "Difficult roads often lead to beautiful destinations.",
         "Start where you are, use what you have, do what you can.",
         "Keep going, you're getting stronger.",
-        # NEW
         "Small steps today create big results tomorrow.",
         "Believe you can and you're halfway there.",
         "Growth begins at the end of your comfort zone.",
@@ -200,14 +254,19 @@ QUOTES_EN = {
         "Great things take time—stay patient.",
         "You become what you repeatedly do.",
         "Stay committed, even when it's hard.",
-        "Today is a perfect day to try."
+        "Today is a perfect day to try.",
+        # Famous people
+        "The only limit to our realization of tomorrow is our doubts of today. — F. D. Roosevelt",
+        "Act as if what you do makes a difference. It does. — William James",
+        "It always seems impossible until it’s done. — Nelson Mandela",
+        "Whether you think you can or you think you can’t, you’re right. — Henry Ford",
+        "You miss 100% of the shots you don’t take. — Wayne Gretzky",
     ],
 
     "Success": [
         "Success is not final; failure is not fatal.",
         "Success is the sum of small efforts repeated daily.",
         "Dream big. Work hard. Stay focused.",
-        # NEW
         "Success starts with self-belief.",
         "Winners are not people who never fail but people who never quit.",
         "Great achievements require dedication.",
@@ -216,14 +275,19 @@ QUOTES_EN = {
         "Do what others won’t, achieve what others can’t.",
         "Every accomplishment begins with the decision to try.",
         "Stay hungry, stay humble.",
-        "The harder you work, the greater the reward."
+        "The harder you work, the greater the reward.",
+        # Famous people
+        "Opportunities don’t happen. You create them. — Chris Grosser",
+        "Success usually comes to those who are too busy to be looking for it. — H. D. Thoreau",
+        "The way to get started is to quit talking and begin doing. — Walt Disney",
+        "Success is walking from failure to failure with no loss of enthusiasm. — Winston Churchill",
+        "If you can dream it, you can do it. — Walt Disney",
     ],
 
     "Life": [
         "Life begins at the end of your comfort zone.",
         "Every moment is a fresh beginning.",
         "Happiness is found in the little things.",
-        # NEW
         "Life is what you make it.",
         "Enjoy the present; it's all you truly have.",
         "Your thoughts shape your reality.",
@@ -232,14 +296,19 @@ QUOTES_EN = {
         "Life becomes easier when you stop comparing.",
         "What you focus on grows.",
         "Slow down; life is not a race.",
-        "Be present, be grateful."
+        "Be present, be grateful.",
+        # Famous people
+        "Life is what happens while you are busy making other plans. — John Lennon",
+        "Be the change that you wish to see in the world. — Mahatma Gandhi",
+        "In the end, it’s not the years in your life that count. It’s the life in your years. — A. Lincoln",
+        "Life rewards the brave. — Virgil",
+        "The purpose of our lives is to be happy. — Dalai Lama",
     ],
 
     "Self-care": [
         "Take care of yourself first.",
         "Self-care is how you take your power back.",
         "Rest is part of the process.",
-        # NEW
         "You deserve the same love you give others.",
         "Pausing is not quitting.",
         "Your well-being matters.",
@@ -248,14 +317,19 @@ QUOTES_EN = {
         "Breathe; you're doing your best.",
         "Prioritize your peace.",
         "Self-care is a daily practice.",
-        "It's okay to take a break."
+        "It's okay to take a break.",
+        # Famous people
+        "To love oneself is the beginning of a lifelong romance. — Oscar Wilde",
+        "The greatest wealth is health. — Virgil",
+        "Almost everything will work again if you unplug it for a few minutes, including you. — Anne Lamott",
+        "Your calm mind is the ultimate weapon against your challenges. — Bryant McGill",
+        "Caring for myself is not self-indulgence, it is self-preservation. — Audre Lorde",
     ],
 
     "Sport": [
         "I float like a butterfly, sting like a bee. — Muhammad Ali",
         "Champions keep playing until they get it right.",
         "Winners train, losers complain.",
-        # NEW
         "Every rep counts.",
         "Your body can stand almost anything; it's your mind you must convince.",
         "Train hard, stay humble.",
@@ -264,14 +338,19 @@ QUOTES_EN = {
         "Don’t limit your challenges; challenge your limits.",
         "Sweat is your body crying for progress.",
         "Discipline beats motivation.",
-        "One more rep can change everything."
+        "One more rep can change everything.",
+        # Famous athletes
+        "I can accept failure, everyone fails at something. But I can’t accept not trying. — Michael Jordan",
+        "Everything negative can be turned into motivation to succeed. — Kobe Bryant",
+        "Success is a journey, not a destination. — Serena Williams",
+        "If you are afraid of failure, you don’t deserve to be successful. — Charles Barkley",
+        "Only the disciplined are free. — Eliud Kipchoge",
     ],
 
     "Discipline": [
         "Discipline is choosing what you want most over what you want now.",
         "Consistency creates results.",
         "Small steps every day lead to big changes.",
-        # NEW
         "Discipline turns dreams into reality.",
         "Show up even when you don’t feel like it.",
         "Consistency beats intensity.",
@@ -280,14 +359,19 @@ QUOTES_EN = {
         "Stay focused; distractions can wait.",
         "Discipline is a superpower.",
         "You don’t get what you wish for; you get what you work for.",
-        "Commitment is doing the work long after the mood has passed."
+        "Commitment is doing the work long after the mood has passed.",
+        # Famous people
+        "Discipline is the bridge between goals and accomplishment. — Jim Rohn",
+        "Freedom is born from discipline. — Jocko Willink",
+        "We are what we repeatedly do. Excellence, then, is not an act, but a habit. — Aristotle",
+        "The future depends on what you do today. — Mahatma Gandhi",
+        "Self-discipline is the magic power that makes you virtually unstoppable. — Dan Kennedy",
     ],
 
     "Friendship": [
         "True friendship has no distance.",
         "Friends are the family we choose.",
         "Good friends make life better.",
-        # NEW
         "A true friend brings out the best in you.",
         "Real friends are rare treasures.",
         "Friendship grows through kindness.",
@@ -296,14 +380,19 @@ QUOTES_EN = {
         "Friends make the world brighter.",
         "Support, love, and loyalty define friendship.",
         "Good friends lift you higher.",
-        "Friendship is a gift to cherish."
+        "Friendship is a gift to cherish.",
+        # Famous people
+        "A friend is one of the nicest things you can have, and one of the best things you can be. — Douglas Pagels",
+        "Friendship doubles joys and halves griefs. — Francis Bacon",
+        "A real friend is one who walks in when the rest of the world walks out. — Walter Winchell",
+        "The only way to have a friend is to be one. — Ralph Waldo Emerson",
+        "True friendship comes when the silence between two people is comfortable. — David Tyson",
     ],
 
     "Resilience": [
         "Fall seven times, stand up eight.",
         "Storms make trees take deeper roots.",
         "Hard times create strong people.",
-        # NEW
         "Pain is temporary, strength is forever.",
         "The struggle you’re in today builds your tomorrow.",
         "Not all storms come to disrupt; some come to clear your path.",
@@ -312,14 +401,19 @@ QUOTES_EN = {
         "Rise after every fall.",
         "Every setback is a setup for a comeback.",
         "Your resilience defines your journey.",
-        "Hold on; your breakthrough is coming."
+        "Hold on; your breakthrough is coming.",
+        # Famous people
+        "That which does not kill us makes us stronger. — Friedrich Nietzsche",
+        "Tough times never last, but tough people do. — Robert Schuller",
+        "The human capacity for burden is like bamboo—far more flexible than you’d ever believe. — Jodi Picoult",
+        "When you have exhausted all possibilities, remember this: you haven’t. — Thomas Edison",
+        "Our greatest glory is not in never falling, but in rising every time we fall. — Confucius",
     ],
 
     "Creativity": [
         "Creativity is intelligence having fun.",
         "Everything you can imagine is real.",
         "Ideas grow when shared.",
-        # NEW
         "Creativity thrives in curiosity.",
         "Think differently; the world needs your ideas.",
         "Innovation begins with imagination.",
@@ -328,30 +422,40 @@ QUOTES_EN = {
         "Mistakes are proof you're trying.",
         "Break the rules; make your own.",
         "Your voice is unique—use it.",
-        "Art is freedom in motion."
+        "Art is freedom in motion.",
+        # Famous people
+        "Imagination is more important than knowledge. — Albert Einstein",
+        "Creativity takes courage. — Henri Matisse",
+        "Art enables us to find ourselves and lose ourselves at the same time. — Thomas Merton",
+        "You can’t use up creativity. The more you use, the more you have. — Maya Angelou",
+        "The chief enemy of creativity is ‘good’ sense. — Pablo Picasso",
     ],
 
     "Career": [
         "The future depends on what you do today.",
         "Success comes to those who are too busy to be looking for it.",
         "Great careers are built step by step.",
-        # NEW
         "Invest in your skills; they never fade.",
         "Your career grows as you grow.",
-        "Be valuable, not available.",
+        "Be valuable, not just available.",
         "Show your work; the world needs your talent.",
         "Opportunities favor the prepared.",
         "Ambition is the first step to success.",
         "Hard work beats luck.",
         "Build a career you're proud of.",
-        "Learning is the path to mastery."
+        "Learning is the path to mastery.",
+        # Famous people
+        "Choose a job you love, and you will never have to work a day in your life. — Confucius",
+        "The only way to do great work is to love what you do. — Steve Jobs",
+        "Strive not to be a success, but rather to be of value. — Albert Einstein",
+        "If you’re offered a seat on a rocket ship, don’t ask what seat. Just get on. — Sheryl Sandberg",
+        "Do not wait to strike till the iron is hot; but make it hot by striking. — William Butler Yeats",
     ],
 
     "Gratitude": [
         "Gratitude turns what we have into enough.",
         "A grateful heart attracts miracles.",
         "Appreciation unlocks abundance.",
-        # NEW
         "Gratitude changes your state instantly.",
         "Count blessings, not problems.",
         "Thankfulness opens the door to joy.",
@@ -360,6 +464,12 @@ QUOTES_EN = {
         "See the good—it’s always there.",
         "The more you appreciate, the more you receive.",
         "Gratitude makes life richer.",
-        "A grateful heart is a peaceful heart."
+        "A grateful heart is a peaceful heart.",
+        # Famous people
+        "Gratitude is not only the greatest of virtues, but the parent of all the others. — Cicero",
+        "The more thankful I became, the more my bounty increased. — Oprah Winfrey",
+        "Enjoy the little things, for one day you may look back and realize they were the big things. — Robert Brault",
+        "Silent gratitude isn’t much use to anyone. — G. B. Stern",
+        "Gratitude turns what we have into enough, and more. — Melody Beattie",
     ],
 }
