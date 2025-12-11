@@ -20,7 +20,7 @@ from telegram.ext import (
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "8515430219:AAHH3d2W7Ao4ao-ARwHMonRxZY5MnOyHz9k"
 ADSGRAM_PLATFORM_ID = 16417
 ADSGRAM_BLOCK_ID = 17933
 
@@ -244,3 +244,4 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = user["lang"]
         cat = user["category"]
         quote = get_random_quote(lang, c
+
