@@ -37,7 +37,7 @@ DAILY_QUOTE_HOUR = 10
 #  QUOTES IMPORT
 # ============================================================
 
-from quotes import QUOTES       # Tüm kategoriler TR/EN
+from quotes import quotes.py       # Tüm kategoriler TR/EN
 from quotes import TEXTS        # TR + EN statik metinler
 
 # ============================================================
