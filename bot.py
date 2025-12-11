@@ -37,7 +37,7 @@ DAILY_QUOTE_HOUR = 10
 #  QUOTES IMPORT
 # ============================================================
 
-from quotes import quotes.py       # Tüm kategoriler TR/EN
+from quotes import QUOTES_TR, QUOTES_EN    # Tüm kategoriler TR/EN
 from quotes import TEXTS        # TR + EN statik metinler
 
 # ============================================================
@@ -556,4 +556,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
