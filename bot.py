@@ -38,7 +38,7 @@ DAILY_QUOTE_HOUR = 10
 # ============================================================
 
 from quotes import QUOTES_TR, QUOTES_EN    # Tüm kategoriler TR/EN
-from quotes import TEXTS        # TR + EN statik metinler
+
 
 # ============================================================
 #  GLOBAL STATE
@@ -556,5 +556,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
