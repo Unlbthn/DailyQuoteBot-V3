@@ -474,47 +474,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
     # PAYLAŞIM
-    if data.startswith("share:"):
-        _, where = data.split(":", 1)
-        last = user_data.get("last_quote")
-        if not last:
-            # fallback: günlük söz
-            if not daily_quote["text"]:
-                refresh_daily_quote()
-            last = {"text": daily_quote["text"], "author": daily_quote["author"]}
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from urllib.parse import quote_plus
 
-        base_text = f"“{last['text']}”"
-        if last.get("author"):
-            base_text += f"\n— {last['author']}"
+def build_share_keyboard(quote_text: str, lang: str) -> InlineKeyboardMarkup:
+    # Paylaşılacak metin
+    share_text = (
+        f"{quote_text}\n\n"
+        "Türkçe ve İngilizce anlamlı sözler için: @QuoteMastersBot"
+        if lang == "tr"
+        else f"{quote_text}\n\n"
+             "Meaningful quotes in Turkish & English: @QuoteMastersBot"
+    )
 
-        if lang == "tr":
-            share_msg = (
-                f"{base_text}\n\n"
-                "Türkçe & İngilizce anlamlı sözler için Quote Masters botunu dene:\n"
-                "https://t.me/QuoteMastersBot"
-            )
-        else:
-            share_msg = (
-                f"{base_text}\n\n"
-                "Discover more quotes with Quote Masters bot:\n"
-                "https://t.me/QuoteMastersBot"
-            )
+    wa_url = f"https://wa.me/?text={quote_plus(share_text)}"
+    tg_url = f"https://t.me/share/url?url={quote_plus('@QuoteMastersBot')}&text={quote_plus(share_text)}"
 
-        if where == "wa":
-            # WhatsApp link
-            from urllib.parse import quote as urlquote
+    keyboard = [
+        [
+            InlineKeyboardButton("📲 WhatsApp", url=wa_url),
+            InlineKeyboardButton("📨 Telegram", url=tg_url),
+        ],
+        # alttaki satırda Günün Sözü / Sözü Değiştir / Konuyu Değiştir / Ayarlar vs durabilir
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-            url = "https://wa.me/?text=" + urlquote(share_msg)
-        else:
-            # Telegram share
-            from urllib.parse import quote as urlquote
-
-            url = "https://t.me/share/url?url=" + urlquote(share_msg)
-
-        await query.message.reply_text(
-            f"{t['share_link_ready']}\n{url}"
-        )
-        return
 
 
 # -------------------------------------------------
@@ -559,3 +543,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
