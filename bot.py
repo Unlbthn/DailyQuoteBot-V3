@@ -328,10 +328,30 @@ async def maybe_send_adsgram(
 # QUOTE HELPERS
 # ----------------------------
 def all_quotes(lang: str) -> List[Tuple[str, str]]:
-    """Return list of (category, quote) for a language."""
+    """Return list of (category, quote) for a language.
+
+    If TOPICS exist in quotes.py, we prefer limiting the pool to those topic categories.
+    Falls back to all categories if none of the topic keys are found.
+    """
     src = QUOTES_TR if lang == "tr" else QUOTES_EN
+
+    # Try to limit to the configured TOPICS first (more consistent UX)
+    topic_keys: List[str] = []
+    for t in TOPICS:
+        # pick the first matching key for this language
+        for cand in _category_candidates(lang, t["id"]):
+            if cand and cand in src:
+                topic_keys.append(cand)
+                break
+    # de-duplicate while keeping order
+    seen = set()
+    topic_keys = [k for k in topic_keys if not (k in seen or seen.add(k))]
+
+    use_keys = topic_keys if topic_keys else list(src.keys())
+
     out: List[Tuple[str, str]] = []
-    for cat, arr in src.items():
+    for cat in use_keys:
+        arr = src.get(cat) or []
         if not arr:
             continue
         for q in arr:
@@ -340,14 +360,27 @@ def all_quotes(lang: str) -> List[Tuple[str, str]]:
                 out.append((cat, q))
     return out
 
-
 def random_quote_from_category(lang: str, category: str) -> Optional[str]:
+    """Random quote from an explicit category key (as it exists in QUOTES_TR/QUOTES_EN)."""
     src = QUOTES_TR if lang == "tr" else QUOTES_EN
     arr = src.get(category) or []
     arr = [str(x).strip() for x in arr if str(x).strip()]
     if not arr:
         return None
     return random.choice(arr)
+
+
+def random_quote_from_topic(lang: str, topic_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return (category_key_used, quote). Tries multiple category key candidates."""
+    src = QUOTES_TR if lang == "tr" else QUOTES_EN
+    key = _pick_existing_category_key(lang, topic_id)
+    if not key:
+        return None, None
+    arr = src.get(key) or []
+    arr = [str(x).strip() for x in arr if str(x).strip()]
+    if not arr:
+        return key, None
+    return key, random.choice(arr)
 
 
 def compute_daily_if_needed() -> None:
@@ -395,16 +428,71 @@ def language_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+
+TOPICS = [
+    {"id": "love", "tr": "Aşk", "en": "Love"},
+    {"id": "life", "tr": "Hayat", "en": "Life"},
+    {"id": "motivation_inspiration", "tr": "Motivasyon & İlham", "en": "Motivation & Inspiration"},
+    {"id": "success", "tr": "Başarı", "en": "Success"},
+    {"id": "friendship", "tr": "Dostluk", "en": "Friendship"},
+    {"id": "happiness", "tr": "Mutluluk", "en": "Happiness"},
+    {"id": "wisdom", "tr": "Bilgelik", "en": "Wisdom"},
+    {"id": "leadership", "tr": "Liderlik", "en": "Leadership"},
+    {"id": "confidence", "tr": "Özgüven", "en": "Confidence"},
+    {"id": "funny", "tr": "Komik", "en": "Funny"},
+]
+
+
+def _topic_by_id(topic_id: str) -> Optional[dict]:
+    for t in TOPICS:
+        if t["id"] == topic_id:
+            return t
+    return None
+
+
+def _category_candidates(lang: str, topic_id: str) -> List[str]:
+    """Return possible category keys for QUOTES_TR / QUOTES_EN.
+
+    We try:
+      1) Language-specific label (e.g., 'Aşk' for TR, 'Love' for EN)
+      2) Bilingual key 'Aşk / Love' (in case quotes.py uses bilingual keys)
+      3) The other language label as fallback
+    """
+    t = _topic_by_id(topic_id) or {}
+    tr_label = (t.get("tr") or "").strip()
+    en_label = (t.get("en") or "").strip()
+    bilingual = f"{tr_label} / {en_label}".strip(" /")
+    if lang == "tr":
+        return [tr_label, bilingual, en_label]
+    return [en_label, bilingual, tr_label]
+
+
+def _pick_existing_category_key(lang: str, topic_id: str) -> Optional[str]:
+    src = QUOTES_TR if lang == "tr" else QUOTES_EN
+    for cand in _category_candidates(lang, topic_id):
+        if cand and cand in src:
+            return cand
+    return None
+
+
 def categories_buttons(lang: str) -> InlineKeyboardMarkup:
-    """Topic picker keyboard (less crowded): one topic per row (full-width)."""
-    cats = list((QUOTES_TR if lang == "tr" else QUOTES_EN).keys())
+    """Topic picker keyboard: 5 rows × 2 columns, stable layout."""
     rows: List[List[InlineKeyboardButton]] = []
-    for c in cats:
-        rows.append([InlineKeyboardButton(c, callback_data=f"cat:{c}")])
+    # 5x2 grid (10 topics)
+    for i in range(0, len(TOPICS), 2):
+        pair = TOPICS[i : i + 2]
+        row: List[InlineKeyboardButton] = []
+        for t in pair:
+            # Show in selected language only (keeps buttons shorter and more stable)
+            label = t["tr"] if lang == "tr" else t["en"]
+            row.append(InlineKeyboardButton(label, callback_data=f"topic:{t['id']}"))
+        rows.append(row)
 
     t = TEXTS[lang]
     rows.append([InlineKeyboardButton(f"⬅️ {t['back']}", callback_data="back_menu")])
     return InlineKeyboardMarkup(rows)
+
+
 
 
 def menu_buttons(lang: str, quote_text: str = "") -> InlineKeyboardMarkup:
@@ -482,7 +570,8 @@ def user_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
 
 
 def user_topic(context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
-    return context.user_data.get("topic")
+    # New: store topic id under "topic_id"
+    return context.user_data.get("topic_id") or context.user_data.get("topic")
 
 
 # ----------------------------
@@ -527,12 +616,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     lang = user_lang(context)
 
-    # ----- Category selection -----
-    if data.startswith("cat:"):
-        category = data.split(":", 1)[1]
-        context.user_data["topic"] = category
+        # ----- Topic selection -----
+    if data.startswith("topic:"):
+        topic_id = data.split(":", 1)[1].strip()
+        if not _topic_by_id(topic_id):
+            await query.edit_message_text(TEXTS[lang]["pick_topic"], reply_markup=categories_buttons(lang))
+            return
 
-        q = random_quote_from_category(lang, category)
+        context.user_data["topic_id"] = topic_id
+
+        cat_key, q = random_quote_from_topic(lang, topic_id)
         if not q:
             await query.edit_message_text(TEXTS[lang]["no_quotes"])
             return
@@ -552,7 +645,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
         return
 
-    # ----- Daily quote button -----
+        # ----- Legacy category buttons (backward compatibility) -----
+    if data.startswith("cat:"):
+        category = data.split(":", 1)[1].strip()
+        context.user_data["topic"] = category
+
+        q = random_quote_from_category(lang, category)
+        if not q:
+            await query.edit_message_text(TEXTS[lang]["no_quotes"])
+            return
+
+        context.user_data["last_quote"] = q
+        msg = build_quote_message(q)
+
+        await query.edit_message_text(
+            msg,
+            parse_mode="Markdown",
+            disable_web_page_preview=False,
+            reply_markup=menu_buttons(lang, quote_text=q),
+        )
+        reply_to = query.message.message_id if query.message else None
+        await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
+        return
+
+# ----- Daily quote button -----
     if data == "daily":
         dq = get_daily_quote(lang)
         if not dq:
@@ -575,8 +691,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # ----- New quote (within topic) -----
     if data == "new_quote":
-        category = user_topic(context)
-        if not category:
+        topic_id = user_topic(context)
+        if not topic_id:
             # if topic not set, ask topic
             await query.edit_message_text(
                 TEXTS[lang]["pick_topic"],
@@ -584,7 +700,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
 
-        q = random_quote_from_category(lang, category)
+        # Backward compat: if "topic_id" is actually a category key, use it directly.
+        if _topic_by_id(topic_id):
+            _, q = random_quote_from_topic(lang, topic_id)
+        else:
+            q = random_quote_from_category(lang, topic_id)
+
         if not q:
             await query.edit_message_text(TEXTS[lang]["no_quotes"])
             return
