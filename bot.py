@@ -37,7 +37,8 @@ from telegram.ext import (
 # CONFIG
 # ----------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "").strip()  # example: bot-17933
+ADSGRAM_PLATFORM_ID = os.getenv("ADSGRAM_PLATFORM_ID", "16417").strip()  # dashboard PlatformID (informational)
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "bot-17933").strip()  # dashboard Block UnitID  # example: bot-17933
 
 # Europe/Istanbul is UTC+3 (no DST)
 TZ = timezone(timedelta(hours=3))
@@ -180,12 +181,18 @@ def _mark_ad_sent(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def fetch_adsgram_ad_sync(tgid: int, lang: str) -> Optional[dict]:
-    """Fetch an ad from AdsGram. Returns dict or None."""
+    """Fetch an ad from AdsGram. Returns a dict or None.
+
+    Endpoint:
+      https://api.adsgram.ai/advbot?tgid={TELEGRAM_USER_ID}&blockid={BLOCK_ID}[&language=tr|en]
+    """
     if not ADSGRAM_BLOCK_ID:
+        logger.info("AdsGram: ADSGRAM_BLOCK_ID not set; skipping.")
         return None
 
     blockid = _normalize_adsgram_blockid(ADSGRAM_BLOCK_ID)
     if not blockid:
+        logger.info("AdsGram: invalid blockid=%r; skipping.", ADSGRAM_BLOCK_ID)
         return None
 
     url = "https://api.adsgram.ai/advbot"
@@ -195,17 +202,42 @@ def fetch_adsgram_ad_sync(tgid: int, lang: str) -> Optional[dict]:
 
     try:
         r = requests.get(url, params=params, timeout=10)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        if not isinstance(data, dict):
-            return None
-        if not (data.get("text_html") or "").strip():
-            return None
-        return data
     except Exception as e:
-        logger.warning("AdsGram error: %s", e)
+        logger.warning("AdsGram request failed: %s", e)
         return None
+
+    body = (r.text or "").strip()
+
+    if r.status_code != 200:
+        logger.info("AdsGram non-200: status=%s body=%r", r.status_code, body[:160])
+        return None
+
+    if not body:
+        logger.info("AdsGram empty response (no ad fill?) for tgid=%s blockid=%s", tgid, blockid)
+        return None
+
+    try:
+        data = r.json()
+    except Exception:
+        logger.info("AdsGram non-JSON response (treat as no ad): %r", body[:200])
+        return None
+
+    if not isinstance(data, dict):
+        logger.info("AdsGram unexpected JSON type: %s", type(data))
+        return None
+
+    if not (data.get("text_html") or "").strip():
+        logger.info("AdsGram JSON without text_html (no ad).")
+        return None
+
+    logger.info(
+        "AdsGram OK: tgid=%s blockid=%s html_len=%s img=%s",
+        tgid,
+        blockid,
+        len((data.get("text_html") or "")),
+        bool(data.get("image_url")),
+    )
+    return data
 
 
 async def fetch_adsgram_ad(tgid: int, lang: str) -> Optional[dict]:
@@ -245,12 +277,8 @@ async def maybe_send_adsgram(
     if not ad:
         return
 
-    # Now we consider the ad as delivered (frequency cap)
-    _mark_ad_sent(context)
-
     text_html = (ad.get("text_html") or "").strip()
     if ADSGRAM_INCLUDE_LABEL:
-        # Keep it simple (HTML mode)
         text_html = f"🟣 <b>Sponsored</b>\n\n{text_html}"
 
     markup = _adsgram_reply_markup(ad)
@@ -277,8 +305,11 @@ async def maybe_send_adsgram(
                 protect_content=True,
                 reply_to_message_id=reply_to_message_id,
             )
+
+        _mark_ad_sent(context)
+        return
+
     except Exception as e:
-        # Fallback: send as plain text if HTML or photo fails
         logger.warning("AdsGram send failed (fallback to text): %s", e)
         try:
             await context.bot.send_message(
@@ -288,9 +319,11 @@ async def maybe_send_adsgram(
                 protect_content=True,
                 reply_to_message_id=reply_to_message_id,
             )
+            _mark_ad_sent(context)
         except Exception as e2:
             logger.warning("AdsGram fallback send failed: %s", e2)
-            return
+        return
+
 # ----------------------------
 # QUOTE HELPERS
 # ----------------------------
@@ -363,26 +396,30 @@ def language_keyboard() -> InlineKeyboardMarkup:
 
 
 def categories_buttons(lang: str) -> InlineKeyboardMarkup:
+    """Topic picker keyboard (less crowded): one topic per row (full-width)."""
     cats = list((QUOTES_TR if lang == "tr" else QUOTES_EN).keys())
-    # keep stable order
     rows: List[List[InlineKeyboardButton]] = []
-    row: List[InlineKeyboardButton] = []
     for c in cats:
-        row.append(InlineKeyboardButton(c, callback_data=f"cat:{c}"))
-        if len(row) == 2:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
+        rows.append([InlineKeyboardButton(c, callback_data=f"cat:{c}")])
+
+    t = TEXTS[lang]
+    rows.append([InlineKeyboardButton(f"⬅️ {t['back']}", callback_data="back_menu")])
     return InlineKeyboardMarkup(rows)
 
 
 def menu_buttons(lang: str, quote_text: str = "") -> InlineKeyboardMarkup:
     t = TEXTS[lang]
-    encoded = requests.utils.quote(quote_text or "")
 
-    # NOTE: Telegram bots cannot force-open native apps directly.
-    # URL buttons are the best possible UX in Telegram (opens the relevant share page).
+    quote_plain = (quote_text or "").strip()
+
+    if lang == "tr":
+        support_line = "💫 Destek olmak için @QuoteMastersBot’a katıl:\nhttps://t.me/QuoteMastersBot"
+    else:
+        support_line = "💫 Support @QuoteMastersBot:\nhttps://t.me/QuoteMastersBot"
+
+    share_text = (quote_plain + "\n\n" + support_line).strip()
+    encoded = requests.utils.quote(share_text)
+
     whatsapp_url = f"https://wa.me/?text={encoded}"
     telegram_url = f"https://t.me/share/url?text={encoded}"
 
@@ -397,7 +434,7 @@ def menu_buttons(lang: str, quote_text: str = "") -> InlineKeyboardMarkup:
                 InlineKeyboardButton(f"✨ {t['new_quote']}", callback_data="new_quote"),
             ],
             [
-                InlineKeyboardButton(f"🔄 {t['change_topic']}", callback_data="change_topic"),
+                InlineKeyboardButton(f"🧩 {t['change_topic']}", callback_data="change_topic"),
                 InlineKeyboardButton(f"⚙️ {t['settings']}", callback_data="settings"),
             ],
         ]
@@ -417,11 +454,27 @@ def settings_buttons(lang: str) -> InlineKeyboardMarkup:
 # ----------------------------
 # RENDER HELPERS
 # ----------------------------
+# Invisible padding to keep the message height more stable on short quotes.
+# U+3164 HANGUL FILLER renders as "blank" in Telegram.
+_PAD_CHAR = "\u3164"
+QUOTE_MIN_LINES = int(os.getenv("QUOTE_MIN_LINES", "8"))
+
+
+def _pad_to_min_lines(msg: str) -> str:
+    lines = (msg or "").splitlines()
+    line_count = max(1, len(lines))
+    if QUOTE_MIN_LINES <= 1:
+        return msg
+    if line_count >= QUOTE_MIN_LINES:
+        return msg
+    need = QUOTE_MIN_LINES - line_count
+    return msg + ("\n" + _PAD_CHAR) * need
+
+
 def build_quote_message(quote: str, sponsored: str = "") -> str:
     quote = (quote or "").strip()
-    if sponsored:
-        return f"{quote}\n\n{ sponsored }"
-    return quote
+    msg = f"{quote}\n\n{ sponsored }" if sponsored else quote
+    return _pad_to_min_lines(msg)
 
 
 def user_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
