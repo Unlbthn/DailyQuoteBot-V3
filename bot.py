@@ -127,75 +127,170 @@ STATE = _load_state()
 
 
 # ----------------------------
-# ADSGRAM
+# ADSGRAM (Telegram bot integration)
 # ----------------------------
-def fetch_adsgram_ad() -> str:
-    """
-    Returns an AdsGram ad message. If no ad available, returns "" (empty).
-    Desired format:
-      🟣 *Sponsored*
-      <title>
-      <description>
-      <link>
-    """
+# IMPORTANT:
+# AdsGram's official bot endpoint expects:
+#   https://api.adsgram.ai/advbot?tgid={TELEGRAM_USER_ID}&blockid={BLOCK_ID}[&language=tr|en]
+# and BLOCK_ID should be numeric (WITHOUT the 'bot-' prefix).  See docs:
+# https://docs.adsgram.ai/bots/block-integration
+
+import asyncio
+import re
+
+
+def _normalize_adsgram_blockid(raw: str) -> str:
+    raw = (raw or "").strip()
+    raw = raw.replace("bot-", "").strip()
+    # keep digits only
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits
+
+
+ADSGRAM_ENABLED = os.getenv("ADSGRAM_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+ADSGRAM_SHOW_EVERY = int(os.getenv("ADSGRAM_SHOW_EVERY", "3"))  # show an ad every N quote views (0=never)
+ADSGRAM_MIN_INTERVAL_SEC = int(os.getenv("ADSGRAM_MIN_INTERVAL_SEC", "90"))  # per-user minimum seconds between ads
+ADSGRAM_INCLUDE_LABEL = os.getenv("ADSGRAM_INCLUDE_LABEL", "0").strip() == "1"  # optional "🟣 Sponsored" prefix
+
+
+def _adsgram_gate_allows(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Per-user frequency cap (stored in user_data). Also bumps quote view counter."""
+    views = int(context.user_data.get("quote_views", 0)) + 1
+    context.user_data["quote_views"] = views
+
+    if (not ADSGRAM_ENABLED) or (not ADSGRAM_BLOCK_ID):
+        return False
+
+    if ADSGRAM_SHOW_EVERY <= 0:
+        return False
+    if views % ADSGRAM_SHOW_EVERY != 0:
+        return False
+
+    now_ts = int(datetime.now(TZ).timestamp())
+    last_ts = int(context.user_data.get("last_ad_ts", 0) or 0)
+    if last_ts and (now_ts - last_ts) < ADSGRAM_MIN_INTERVAL_SEC:
+        return False
+
+    # Don't set last_ad_ts here; set it only after we really send an ad.
+    return True
+
+
+def _mark_ad_sent(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data["last_ad_ts"] = int(datetime.now(TZ).timestamp())
+
+
+def fetch_adsgram_ad_sync(tgid: int, lang: str) -> Optional[dict]:
+    """Fetch an ad from AdsGram. Returns dict or None."""
     if not ADSGRAM_BLOCK_ID:
-        return ""
+        return None
 
-    url = f"https://adsgram.ai/api/v1/show?block_id={ADSGRAM_BLOCK_ID}"
+    blockid = _normalize_adsgram_blockid(ADSGRAM_BLOCK_ID)
+    if not blockid:
+        return None
+
+    url = "https://api.adsgram.ai/advbot"
+    params = {"tgid": str(int(tgid)), "blockid": blockid}
+    if lang in ("tr", "en"):
+        params["language"] = lang
+
     try:
-        r = requests.get(url, timeout=10)
-        body = (r.text or "").strip()
-
-        # AdsGram sometimes returns plain text like:
-        # "No available advertisement at the moment, try again later!"
-        if not body:
-            return ""
-        if "No available advertisement" in body:
-            return ""
-
-        # Try JSON
-        data = None
-        try:
-            data = r.json()
-        except Exception:
-            # Not JSON => treat as no ad
-            return ""
-
-        # Normalize possible shapes
-        # Common guess: {"data": {"title":..., "description":..., "text":..., "link":...}}
-        payload = data.get("data") if isinstance(data, dict) else None
-        if not isinstance(payload, dict):
-            # Some APIs return {"message": "..."} on error
-            msg = ""
-            if isinstance(data, dict):
-                msg = str(data.get("message") or data.get("error") or "")
-            if "No available advertisement" in msg:
-                return ""
-            return ""
-
-        title = str(payload.get("title") or "").strip()
-        desc = str(payload.get("description") or "").strip()
-        text = str(payload.get("text") or "").strip()
-        link = str(payload.get("link") or payload.get("url") or "").strip()
-
-        lines = ["🟣 *Sponsored*"]
-        for s in [title, desc, text]:
-            s = s.strip()
-            if s and s not in lines:
-                lines.append(s)
-        if link:
-            lines.append(link)
-
-        # If we only have the header, hide it
-        if len(lines) == 1:
-            return ""
-        return "\n".join(lines)
-
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if not isinstance(data, dict):
+            return None
+        if not (data.get("text_html") or "").strip():
+            return None
+        return data
     except Exception as e:
         logger.warning("AdsGram error: %s", e)
-        return ""
+        return None
 
 
+async def fetch_adsgram_ad(tgid: int, lang: str) -> Optional[dict]:
+    # requests is blocking; offload to thread
+    return await asyncio.to_thread(fetch_adsgram_ad_sync, tgid, lang)
+
+
+def _adsgram_reply_markup(ad: dict) -> Optional[InlineKeyboardMarkup]:
+    rows = []
+    btn = (ad.get("button_name") or "").strip()
+    url = (ad.get("click_url") or "").strip()
+    if btn and url:
+        rows.append([InlineKeyboardButton(btn, url=url)])
+
+    btn2 = (ad.get("button_reward_name") or "").strip()
+    url2 = (ad.get("reward_url") or "").strip()
+    if btn2 and url2:
+        rows.append([InlineKeyboardButton(btn2, url=url2)])
+
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+async def maybe_send_adsgram(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    reply_to_message_id: Optional[int] = None,
+) -> None:
+    """Call this after you show a quote. It will decide (rate-limit) and send an AdsGram ad as a reply."""
+    if not _adsgram_gate_allows(context):
+        return
+
+    if not update.effective_user or not update.effective_chat:
+        return
+
+    ad = await fetch_adsgram_ad(update.effective_user.id, lang=lang)
+    if not ad:
+        return
+
+    # Now we consider the ad as delivered (frequency cap)
+    _mark_ad_sent(context)
+
+    text_html = (ad.get("text_html") or "").strip()
+    if ADSGRAM_INCLUDE_LABEL:
+        # Keep it simple (HTML mode)
+        text_html = f"🟣 <b>Sponsored</b>\n\n{text_html}"
+
+    markup = _adsgram_reply_markup(ad)
+    image_url = (ad.get("image_url") or "").strip()
+
+    try:
+        if image_url:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=image_url,
+                caption=text_html,
+                parse_mode="HTML",
+                reply_markup=markup,
+                protect_content=True,
+                reply_to_message_id=reply_to_message_id,
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text_html,
+                parse_mode="HTML",
+                reply_markup=markup,
+                disable_web_page_preview=False,
+                protect_content=True,
+                reply_to_message_id=reply_to_message_id,
+            )
+    except Exception as e:
+        # Fallback: send as plain text if HTML or photo fails
+        logger.warning("AdsGram send failed (fallback to text): %s", e)
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=re.sub(r"<[^>]+>", "", text_html),
+                disable_web_page_preview=False,
+                protect_content=True,
+                reply_to_message_id=reply_to_message_id,
+            )
+        except Exception as e2:
+            logger.warning("AdsGram fallback send failed: %s", e2)
+            return
 # ----------------------------
 # QUOTE HELPERS
 # ----------------------------
@@ -391,9 +486,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # save last quote for sharing buttons
         context.user_data["last_quote"] = q
-
-        sponsored = fetch_adsgram_ad()
-        msg = build_quote_message(q, sponsored=sponsored)
+        msg = build_quote_message(q)
 
         await query.edit_message_text(
             msg,
@@ -401,6 +494,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             disable_web_page_preview=False,
             reply_markup=menu_buttons(lang, quote_text=q),
         )
+        # AdsGram ad as a reply under the quote (rate-limited)
+        reply_to = query.message.message_id if query.message else None
+        await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
         return
 
     # ----- Daily quote button -----
@@ -411,8 +507,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         context.user_data["last_quote"] = dq
-        sponsored = fetch_adsgram_ad()
-        msg = build_quote_message(dq, sponsored=sponsored)
+        msg = build_quote_message(dq)
 
         await query.edit_message_text(
             msg,
@@ -420,6 +515,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             disable_web_page_preview=False,
             reply_markup=menu_buttons(lang, quote_text=dq),
         )
+        # AdsGram ad as a reply under the quote (rate-limited)
+        reply_to = query.message.message_id if query.message else None
+        await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
         return
 
     # ----- New quote (within topic) -----
@@ -439,8 +537,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         context.user_data["last_quote"] = q
-        sponsored = fetch_adsgram_ad()
-        msg = build_quote_message(q, sponsored=sponsored)
+        msg = build_quote_message(q)
 
         await query.edit_message_text(
             msg,
@@ -448,6 +545,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             disable_web_page_preview=False,
             reply_markup=menu_buttons(lang, quote_text=q),
         )
+        # AdsGram ad as a reply under the quote (rate-limited)
+        reply_to = query.message.message_id if query.message else None
+        await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
         return
 
     # ----- Change topic -----
@@ -479,14 +579,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # return to last quote if present, else topic selection
         last = (context.user_data.get("last_quote") or "").strip()
         if last:
-            sponsored = fetch_adsgram_ad()
-            msg = build_quote_message(last, sponsored=sponsored)
+            msg = build_quote_message(last)
             await query.edit_message_text(
                 msg,
                 parse_mode="Markdown",
                 disable_web_page_preview=False,
                 reply_markup=menu_buttons(lang, quote_text=last),
             )
+            # AdsGram ad as a reply under the quote (rate-limited)
+            reply_to = query.message.message_id if query.message else None
+            await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
         else:
             await query.edit_message_text(
                 TEXTS[lang]["pick_topic"],
