@@ -1,4 +1,6 @@
-python-telegram-bot[job-queue]==20.7
+python-telegram-bot[job-queue]>=21.0
 requests==2.31.0
-pytz
 apscheduler==3.10.4
+pytz
+
+
