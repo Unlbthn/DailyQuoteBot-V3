@@ -151,29 +151,34 @@ def _normalize_adsgram_blockid(raw: str) -> str:
 ADSGRAM_ENABLED = os.getenv("ADSGRAM_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 ADSGRAM_SHOW_EVERY = int(os.getenv("ADSGRAM_SHOW_EVERY", "3"))  # show an ad every N quote views (0=never)
 ADSGRAM_MIN_INTERVAL_SEC = int(os.getenv("ADSGRAM_MIN_INTERVAL_SEC", "90"))  # per-user minimum seconds between ads
+DEBUG_ADSGRAM = os.getenv("DEBUG_ADSGRAM", "0").strip().lower() in ("1", "true", "yes", "on")
+
 ADSGRAM_INCLUDE_LABEL = os.getenv("ADSGRAM_INCLUDE_LABEL", "0").strip() == "1"  # optional "🟣 Sponsored" prefix
 
 
-def _adsgram_gate_allows(context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Per-user frequency cap (stored in user_data). Also bumps quote view counter."""
+def _adsgram_gate_check(context: ContextTypes.DEFAULT_TYPE) -> Tuple[bool, str]:
+    """Per-user frequency cap (stored in user_data). Also bumps quote view counter.
+
+    Returns: (allowed, reason)
+    """
     views = int(context.user_data.get("quote_views", 0)) + 1
     context.user_data["quote_views"] = views
 
     if (not ADSGRAM_ENABLED) or (not ADSGRAM_BLOCK_ID):
-        return False
+        return False, "disabled_or_missing_blockid"
 
     if ADSGRAM_SHOW_EVERY <= 0:
-        return False
+        return False, "show_every<=0"
+
     if views % ADSGRAM_SHOW_EVERY != 0:
-        return False
+        return False, f"not_nth_view (views={views}, every={ADSGRAM_SHOW_EVERY})"
 
     now_ts = int(datetime.now(TZ).timestamp())
     last_ts = int(context.user_data.get("last_ad_ts", 0) or 0)
     if last_ts and (now_ts - last_ts) < ADSGRAM_MIN_INTERVAL_SEC:
-        return False
+        return False, f"min_interval (delta={now_ts-last_ts}s < {ADSGRAM_MIN_INTERVAL_SEC}s)"
 
-    # Don't set last_ad_ts here; set it only after we really send an ad.
-    return True
+    return True, "ok"
 
 
 def _mark_ad_sent(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,6 +204,9 @@ def fetch_adsgram_ad_sync(tgid: int, lang: str) -> Optional[dict]:
     params = {"tgid": str(int(tgid)), "blockid": blockid}
     if lang in ("tr", "en"):
         params["language"] = lang
+
+    if DEBUG_ADSGRAM:
+        logger.info("AdsGram request params: %s", params)
 
     try:
         r = requests.get(url, params=params, timeout=10)
@@ -267,7 +275,10 @@ async def maybe_send_adsgram(
     reply_to_message_id: Optional[int] = None,
 ) -> None:
     """Call this after you show a quote. It will decide (rate-limit) and send an AdsGram ad as a reply."""
-    if not _adsgram_gate_allows(context):
+    allowed, reason = _adsgram_gate_check(context)
+    if not allowed:
+        if DEBUG_ADSGRAM:
+            logger.info("AdsGram gate blocked: %s", reason)
         return
 
     if not update.effective_user or not update.effective_chat:
@@ -489,7 +500,7 @@ def categories_buttons(lang: str) -> InlineKeyboardMarkup:
         rows.append(row)
 
     t = TEXTS[lang]
-    rows.append([InlineKeyboardButton(f"⬅️ {t['back']}", callback_data="back_menu")])
+    rows.append([InlineKeyboardButton(f"⬅️ {t['back']}", callback_data="back_language")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -749,6 +760,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
+    if data == "back_language":
+        # Return to language selection screen
+        await query.edit_message_text(
+            TEXTS[lang]["pick_lang"],
+            reply_markup=language_keyboard(),
+        )
+        return
+
     if data == "back_menu":
         # return to last quote if present, else topic selection
         last = (context.user_data.get("last_quote") or "").strip()
@@ -804,6 +823,49 @@ def start_scheduler() -> BackgroundScheduler:
 # ----------------------------
 # MAIN
 # ----------------------------
+
+async def adtest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manual AdsGram test: forces a request and shows result (useful for debugging)."""
+    lang = (context.user_data.get("lang") or "tr").strip().lower()
+    if lang not in ("tr", "en"):
+        lang = "tr"
+
+    if not update.effective_user or not update.effective_chat or not update.message:
+        return
+
+    ad = await fetch_adsgram_ad(update.effective_user.id, lang=lang)
+    if not ad:
+        await update.message.reply_text(
+            f"AdsGram: No ad returned. blockid={_normalize_adsgram_blockid(ADSGRAM_BLOCK_ID)}\n"
+            "Not: Block onaylı mı? Dashboard’da Approved olmalı. Bazen fill-rate 0 olabilir.",
+            disable_web_page_preview=True,
+        )
+        return
+
+    text_html = (ad.get("text_html") or "").strip()
+    if ADSGRAM_INCLUDE_LABEL:
+        text_html = f"🟣 <b>Sponsored</b>\n\n{text_html}"
+    markup = _adsgram_reply_markup(ad)
+    image_url = (ad.get("image_url") or "").strip()
+
+    if image_url:
+        await update.message.reply_photo(
+            photo=image_url,
+            caption=text_html,
+            parse_mode="HTML",
+            reply_markup=markup,
+            protect_content=True,
+        )
+    else:
+        await update.message.reply_text(
+            text_html,
+            parse_mode="HTML",
+            reply_markup=markup,
+            protect_content=True,
+            disable_web_page_preview=False,
+        )
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Set it in environment variables.")
@@ -817,6 +879,7 @@ def main() -> None:
     application: Application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("adtest", adtest))
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     logger.info("Bot started.")
