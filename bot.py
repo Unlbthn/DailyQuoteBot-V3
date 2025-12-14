@@ -32,6 +32,8 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
+from telegram.error import BadRequest
+
 
 # ----------------------------
 # CONFIG
@@ -50,6 +52,21 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("quote-masters-bot")
+
+async def safe_edit_message_text(query, text: str, **kwargs):
+    """Edit message text but ignore Telegram 'message is not modified' errors."""
+    try:
+        return await query.edit_message_text(text, **kwargs)
+    except BadRequest as e:
+        if 'Message is not modified' in str(e):
+            logger.info('Edit skipped (message is not modified).')
+            try:
+                await query.answer()
+            except Exception:
+                pass
+            return None
+        raise
+
 
 # ----------------------------
 # QUOTES SOURCE
@@ -152,6 +169,8 @@ ADSGRAM_ENABLED = os.getenv("ADSGRAM_ENABLED", "1").strip().lower() not in ("0",
 ADSGRAM_SHOW_EVERY = int(os.getenv("ADSGRAM_SHOW_EVERY", "3"))  # show an ad every N quote views (0=never)
 ADSGRAM_MIN_INTERVAL_SEC = int(os.getenv("ADSGRAM_MIN_INTERVAL_SEC", "90"))  # per-user minimum seconds between ads
 DEBUG_ADSGRAM = os.getenv("DEBUG_ADSGRAM", "0").strip().lower() in ("1", "true", "yes", "on")
+ADSGRAM_LANG_MODE = os.getenv("ADSGRAM_LANG_MODE", "auto").strip().lower()  # auto|force|none
+
 
 ADSGRAM_INCLUDE_LABEL = os.getenv("ADSGRAM_INCLUDE_LABEL", "0").strip() == "1"  # optional "🟣 Sponsored" prefix
 
@@ -202,14 +221,19 @@ def fetch_adsgram_ad_sync(tgid: int, lang: str) -> Optional[dict]:
 
     url = "https://api.adsgram.ai/advbot"
     params = {"tgid": str(int(tgid)), "blockid": blockid}
-    if lang in ("tr", "en"):
+    if ADSGRAM_LANG_MODE == "force" and lang in ("tr", "en"):
         params["language"] = lang
+    elif ADSGRAM_LANG_MODE == "auto" and lang == "en":
+        params["language"] = "en"
 
     if DEBUG_ADSGRAM:
         logger.info("AdsGram request params: %s", params)
 
     try:
         r = requests.get(url, params=params, timeout=10)
+        if DEBUG_ADSGRAM:
+            ct = (r.headers.get('content-type') or '').split(';')[0].strip()
+            logger.info('AdsGram response: status=%s content_type=%s len=%s', r.status_code, ct, len(r.text or ''))
     except Exception as e:
         logger.warning("AdsGram request failed: %s", e)
         return None
@@ -619,7 +643,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data.pop("awaiting_lang", None)
 
         # After language selection => ask topic (no extra marketing text)
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             TEXTS[lang]["pick_topic"],
             reply_markup=categories_buttons(lang),
         )
@@ -631,21 +656,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("topic:"):
         topic_id = data.split(":", 1)[1].strip()
         if not _topic_by_id(topic_id):
-            await query.edit_message_text(TEXTS[lang]["pick_topic"], reply_markup=categories_buttons(lang))
+            await safe_edit_message_text(query, TEXTS[lang]["pick_topic"], reply_markup=categories_buttons(lang))
             return
 
         context.user_data["topic_id"] = topic_id
 
         cat_key, q = random_quote_from_topic(lang, topic_id)
         if not q:
-            await query.edit_message_text(TEXTS[lang]["no_quotes"])
+            await safe_edit_message_text(query, TEXTS[lang]["no_quotes"])
             return
 
         # save last quote for sharing buttons
         context.user_data["last_quote"] = q
         msg = build_quote_message(q)
 
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             msg,
             parse_mode="Markdown",
             disable_web_page_preview=False,
@@ -663,13 +689,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         q = random_quote_from_category(lang, category)
         if not q:
-            await query.edit_message_text(TEXTS[lang]["no_quotes"])
+            await safe_edit_message_text(query, TEXTS[lang]["no_quotes"])
             return
 
         context.user_data["last_quote"] = q
         msg = build_quote_message(q)
 
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             msg,
             parse_mode="Markdown",
             disable_web_page_preview=False,
@@ -689,7 +716,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data["last_quote"] = dq
         msg = build_quote_message(dq)
 
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             msg,
             parse_mode="Markdown",
             disable_web_page_preview=False,
@@ -705,7 +733,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         topic_id = user_topic(context)
         if not topic_id:
             # if topic not set, ask topic
-            await query.edit_message_text(
+            await safe_edit_message_text(
+                query,
                 TEXTS[lang]["pick_topic"],
                 reply_markup=categories_buttons(lang),
             )
@@ -718,13 +747,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             q = random_quote_from_category(lang, topic_id)
 
         if not q:
-            await query.edit_message_text(TEXTS[lang]["no_quotes"])
+            await safe_edit_message_text(query, TEXTS[lang]["no_quotes"])
             return
 
         context.user_data["last_quote"] = q
         msg = build_quote_message(q)
 
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             msg,
             parse_mode="Markdown",
             disable_web_page_preview=False,
@@ -737,7 +767,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # ----- Change topic -----
     if data == "change_topic":
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             TEXTS[lang]["pick_topic"],
             reply_markup=categories_buttons(lang),
         )
@@ -745,7 +776,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # ----- Settings -----
     if data == "settings":
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             TEXTS[lang]["settings"],
             reply_markup=settings_buttons(lang),
         )
@@ -754,7 +786,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "settings:lang":
         # language change from settings
         context.user_data["awaiting_lang"] = True
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             TEXTS[lang]["pick_lang"],
             reply_markup=language_keyboard(),
         )
@@ -762,7 +795,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data == "back_language":
         # Return to language selection screen
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             TEXTS[lang]["pick_lang"],
             reply_markup=language_keyboard(),
         )
@@ -773,7 +807,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         last = (context.user_data.get("last_quote") or "").strip()
         if last:
             msg = build_quote_message(last)
-            await query.edit_message_text(
+            await safe_edit_message_text(
+                query,
                 msg,
                 parse_mode="Markdown",
                 disable_web_page_preview=False,
@@ -783,7 +818,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             reply_to = query.message.message_id if query.message else None
             await maybe_send_adsgram(update, context, lang, reply_to_message_id=reply_to)
         else:
-            await query.edit_message_text(
+            await safe_edit_message_text(
+                query,
                 TEXTS[lang]["pick_topic"],
                 reply_markup=categories_buttons(lang),
             )
