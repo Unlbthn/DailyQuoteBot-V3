@@ -14,6 +14,7 @@ import os
 import json
 import random
 import logging
+import time as pytime
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -32,7 +33,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Conflict
 
 
 # ----------------------------
@@ -912,14 +913,31 @@ def main() -> None:
     # Start cron scheduler
     start_scheduler()
 
-    application: Application = ApplicationBuilder().token(BOT_TOKEN).build()
+    def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        # Prevents "No error handlers are registered" and logs exceptions clearly
+        logger.exception("Unhandled exception while processing an update", exc_info=context.error)
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("adtest", adtest))
-    application.add_handler(CallbackQueryHandler(handle_callback))
+    def _build_application() -> Application:
+        app: Application = ApplicationBuilder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("adtest", adtest))
+        app.add_handler(CallbackQueryHandler(handle_callback))
+        app.add_error_handler(_error_handler)
+        return app
 
-    logger.info("Bot started.")
-    application.run_polling(close_loop=False)
+    # Start polling with conflict-retry (helps during rolling deploy overlap)
+    while True:
+        application = _build_application()
+        logger.info("Bot started.")
+        try:
+            application.run_polling(close_loop=False)
+            break
+        except Conflict:
+            logger.warning("Polling conflict (409). Another instance is polling. Retrying in 10s...")
+            pytime.sleep(10)
+        except Exception:
+            logger.exception("Polling crashed. Retrying in 5s...")
+            pytime.sleep(5)
 
 
 if __name__ == "__main__":
